@@ -1,0 +1,28 @@
+{
+  "name": "remote-lab-reservation-system",
+  "version": "1.0.0",
+  "description": "Backend and Frontend code for the Remote Lab Reservation System.",
+  "main": "app.py",
+  "scripts": {
+    "test": "pytest test.py -v",
+    "test:coverage": "pytest test.py --cov=app --cov-report=html --cov-report=term-missing",
+    "lint": "flake8 app.py test.py",
+    "start": "python app.py",
+    "build": "echo No dedicated frontend build step needed for plain HTML/Tailwind. Frontend is self-contained."
+  },
+  "keywords": [
+    "flask",
+    "python",
+    "sqlite",
+    "tailwind"
+  ],
+  "author": "Dream Team",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "node": "^22.4.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

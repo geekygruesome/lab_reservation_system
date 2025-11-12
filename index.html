@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LabSync - User Registration</title>
+    <!-- Load Tailwind CSS from CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configure Tailwind for Inter font and light colors -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary-light': '#E6F0FF', // Very decent light blue
+                        'primary-dark': '#3B82F6',  // Standard blue for accents
+                        'accent-green': '#10B981',  // Success green
+                        'accent-red': '#EF4444',    // Error red
+                        'bg-light': '#F9FAFB',      // Very light gray background
+                        'text-dark': '#1F2937',     // Dark text
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styles for better aesthetics */
+        body {
+            background-color: theme('colors.bg-light');
+            font-family: theme('fontFamily.sans');
+        }
+        .form-input {
+            transition: all 0.2s ease-in-out;
+        }
+        .form-input:focus {
+            border-color: theme('colors.primary-dark');
+            box-shadow: 0 0 0 3px theme('colors.primary-light');
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <!-- Registration Card -->
+    <div class="w-full max-w-md bg-white p-8 md:p-10 rounded-xl shadow-2xl border border-gray-100">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-extrabold text-text-dark">LabSync Registration</h1>
+            <p class="text-sm text-gray-500 mt-1">Book labs with your College ID.</p>
+        </div>
+
+        <!-- Status Message Box -->
+        <div id="message-box" class="hidden p-3 mb-6 rounded-lg font-medium text-sm" role="alert">
+            <!-- Message content goes here -->
+        </div>
+
+        <form id="registration-form" onsubmit="handleRegistration(event)">
+            <!-- Name -->
+            <div class="mb-4">
+                <label for="name" class="block text-sm font-medium text-text-dark mb-1">Full Name</label>
+                <input type="text" id="name" name="name" required
+                       class="form-input w-full px-4 py-2 border border-gray-300 rounded-lg text-text-dark placeholder-gray-400 focus:outline-none">
+            </div>
+
+            <!-- College ID -->
+            <div class="mb-4">
+                <label for="college_id" class="block text-sm font-medium text-text-dark mb-1">College ID</label>
+                <input type="text" id="college_id" name="college_id" required pattern="[A-Za-z0-9]+" title="Only alphanumeric characters are allowed"
+                       class="form-input w-full px-4 py-2 border border-gray-300 rounded-lg text-text-dark placeholder-gray-400 focus:outline-none">
+            </div>
+
+            <!-- Email -->
+            <div class="mb-4">
+                <label for="email" class="block text-sm font-medium text-text-dark mb-1">Email</label>
+                <input type="email" id="email" name="email" required
+                       class="form-input w-full px-4 py-2 border border-gray-300 rounded-lg text-text-dark placeholder-gray-400 focus:outline-none">
+            </div>
+
+            <!-- Role (Placeholder for future complexity) -->
+            <div class="mb-4">
+                <label for="role" class="block text-sm font-medium text-text-dark mb-1">User Role</label>
+                <select id="role" name="role" required
+                        class="form-input w-full px-4 py-2 border border-gray-300 rounded-lg text-text-dark focus:outline-none bg-white appearance-none">
+                    <option value="student" selected>Student</option>
+                    <option value="faculty">Faculty</option>
+                </select>
+            </div>
+
+            <!-- Password -->
+            <div class="mb-6">
+                <label for="password" class="block text-sm font-medium text-text-dark mb-1">Password</label>
+                <input type="password" id="password" name="password" required
+                       placeholder="Min 8 chars, 1 number, 1 symbol"
+                       class="form-input w-full px-4 py-2 border border-gray-300 rounded-lg text-text-dark placeholder-gray-400 focus:outline-none">
+                <p id="password-hint" class="text-xs text-gray-500 mt-1">Must be 8+ characters, including 1 number and 1 symbol.</p>
+            </div>
+
+            <!-- Submit Button -->
+            <button type="submit" id="submit-button"
+                    class="w-full bg-primary-dark text-white py-2.5 rounded-lg font-semibold hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-4 focus:ring-primary-light flex items-center justify-center">
+                <span id="button-text">Register Account</span>
+                <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+        </form>
+        
+        <p class="mt-6 text-center text-sm text-gray-500">
+            Already have an account? 
+            <a href="#" class="text-primary-dark hover:text-blue-600 font-medium transition-colors duration-200">Log in here</a>
+        </p>
+
+    </div>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:5000/api/register';
+        const form = document.getElementById('registration-form');
+        const messageBox = document.getElementById('message-box');
+        const submitButton = document.getElementById('submit-button');
+        const buttonText = document.getElementById('button-text');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        // Function to show feedback messages
+        function showMessage(message, type = 'error') {
+            messageBox.textContent = message;
+            messageBox.classList.remove('hidden', 'bg-accent-green/10', 'text-accent-green', 'bg-accent-red/10', 'text-accent-red');
+            
+            if (type === 'success') {
+                messageBox.classList.add('bg-accent-green/10', 'text-accent-green');
+            } else { // 'error'
+                messageBox.classList.add('bg-accent-red/10', 'text-accent-red');
+            }
+        }
+
+        // Function to set loading state
+        function setLoading(isLoading) {
+            submitButton.disabled = isLoading;
+            if (isLoading) {
+                buttonText.textContent = 'Processing...';
+                loadingSpinner.classList.remove('hidden');
+            } else {
+                buttonText.textContent = 'Register Account';
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        async function handleRegistration(event) {
+            event.preventDefault();
+            setLoading(true);
+            messageBox.classList.add('hidden'); // Clear previous message
+            
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    // Success case: show confirmation and logically redirect (or mock redirect)
+                    showMessage(result.message, 'success');
+                    form.reset();
+                    // In a real app, this is where you would redirect the user to login.html
+                    // window.location.href = '/login.html'; 
+                } else {
+                    // Error case: show validation/duplicate error
+                    showMessage(result.message, 'error');
+                }
+
+            } catch (error) {
+                console.error('Registration failed:', error);
+                showMessage('Network error or server unavailable. Please try again later.', 'error');
+            } finally {
+                setLoading(false);
+            }
+        }
+    </script>
+</body>
+</html>
