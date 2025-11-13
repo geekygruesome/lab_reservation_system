@@ -1,0 +1,27 @@
+{
+  "name": "remote-lab-reservation-system",
+  "version": "1.0.0",
+  "description": "Backend and Frontend code for the Remote Lab Reservation System.",
+  "main": "app.py",
+  "scripts": {
+    "test": "echo 'Running Python backend tests...' && python -m venv venv && ./venv/bin/pip install -r requirements.txt && ./venv/bin/python -m pytest tests/test_backend.py",
+    "test:coverage": "echo 'Running Python backend tests with coverage...' && python -m venv venv && ./venv/bin/pip install -r requirements.txt coverage && ./venv/bin/python -m coverage run -m pytest tests/test_backend.py && ./venv/bin/python -m coverage report",
+    "start": "python app.py",
+    "build": "echo 'No dedicated frontend build step needed for plain HTML/Tailwind. Frontend is self-contained.'"
+  },
+  "keywords": [
+    "flask",
+    "python",
+    "sqlite",
+    "tailwind"
+  ],
+  "author": "Dream Team",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "node": "^22.4.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
