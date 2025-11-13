@@ -160,4 +160,6 @@ if __name__ == "__main__":
 
     # The init_db function is also decorated to run once on first request
     # but since this is a single file app, running it on startup is best.
-    app.run(debug=True, port=5000)
+    # Use environment variable for debug mode (default: False for security)
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(debug=debug_mode, port=5000)
