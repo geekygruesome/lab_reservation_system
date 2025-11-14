@@ -11,7 +11,6 @@ from datetime import timezone
 
 # --- Configuration ---
 app = Flask(__name__)
-
 # Enable CORS so browser-based frontends (like index.html) can POST to /api/register
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Use an absolute path for the SQLite file (stable regardless of current working dir)
@@ -73,7 +72,6 @@ def init_db():
         conn.close()
 
     print("Database initialization complete.")
-
 # --- Helper Functions (Core Logic) ---
 
 
