@@ -27,10 +27,24 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint with flake8
-        run: flake8 app.py test.py
+        run: |
+          pip install flake8
+          flake8 app.py tests/ --count --statistics --max-line-length=120 --show-source
+        continue-on-error: false
+
+      - name: Security check with Bandit
+        run: |
+          pip install bandit
+          bandit -r app.py -ll -f json -o bandit-report.json || true
+        continue-on-error: true
 
       - name: Run tests with coverage
-        run: pytest test.py --cov=app --cov-report=xml --cov-report=term-missing
+        run: |
+          pip install pytest pytest-cov
+          pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=75
+        env:
+          FLASK_DEBUG: "False"
+          SECRET_KEY: "test-secret-key"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3

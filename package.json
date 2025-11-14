@@ -4,11 +4,11 @@
   "description": "Backend and Frontend code for the Remote Lab Reservation System.",
   "main": "app.py",
   "scripts": {
-    "test": "pytest test.py -v",
-    "test:coverage": "pytest test.py --cov=app --cov-report=html --cov-report=term-missing",
-    "lint": "flake8 app.py test.py",
+    "test": "pytest tests/ -v",
+    "test:coverage": "pytest tests/ --cov=app --cov-report=html --cov-report=term-missing",
+    "lint": "flake8 app.py tests/",
     "start": "python app.py",
-    "build": "echo No dedicated frontend build step needed for plain HTML/Tailwind. Frontend is self-contained."
+    "build": "echo 'No dedicated frontend build step needed for plain HTML/Tailwind. Frontend is self-contained.'"
   },
   "keywords": [
     "flask",
