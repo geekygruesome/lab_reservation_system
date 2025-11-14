@@ -147,7 +147,8 @@ def test_token_expired(client):
     # craft an expired token
     import jwt as _jwt
     import datetime as _dt
-    exp_time = _dt.datetime.utcnow() - _dt.timedelta(seconds=10)
+    from datetime import timezone
+    exp_time = _dt.datetime.now(timezone.utc) - _dt.timedelta(seconds=10)
     payload = {
         "college_id": "X1",
         "role": "student",
