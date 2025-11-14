@@ -4,8 +4,9 @@
   "description": "Backend and Frontend code for the Remote Lab Reservation System.",
   "main": "app.py",
   "scripts": {
-    "test": "echo 'Running Python backend tests...' && python -m venv venv && ./venv/bin/pip install -r requirements.txt && ./venv/bin/python -m pytest tests/test_backend.py",
-    "test:coverage": "echo 'Running Python backend tests with coverage...' && python -m venv venv && ./venv/bin/pip install -r requirements.txt coverage && ./venv/bin/python -m coverage run -m pytest tests/test_backend.py && ./venv/bin/python -m coverage report",
+    "test": "pytest tests/ -v",
+    "test:coverage": "pytest tests/ --cov=app --cov-report=html --cov-report=term-missing",
+    "lint": "flake8 app.py tests/",
     "start": "python app.py",
     "build": "echo 'No dedicated frontend build step needed for plain HTML/Tailwind. Frontend is self-contained.'"
   },

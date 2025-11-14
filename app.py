@@ -1,4 +1,5 @@
 import sqlite3
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -6,6 +7,7 @@ import re
 import os
 import jwt
 import datetime
+from datetime import timezone
 
 # --- Configuration ---
 app = Flask(__name__)
@@ -14,7 +16,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Use an absolute path for the SQLite file (stable regardless of current working dir)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, 'lab_reservations.db')
+DATABASE = os.path.join(BASE_DIR, "lab_reservations.db")
 print("Using database file:", DATABASE)
 # Secret used for signing JWTs. In production, set via environment variable.
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
@@ -26,8 +28,7 @@ JWT_EXP_DELTA_SECONDS = int(os.getenv("JWT_EXP_DELTA_SECONDS", 3600))
 def get_db_connection():
     """Connects to the SQLite database."""
     conn = sqlite3.connect(DATABASE)
-    # Use Row factory so callers can access columns by name
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row  # This allows accessing columns by name
     return conn
 
 
@@ -42,7 +43,8 @@ def init_db():
     # 3. email (unique)
     # 4. password_hash (for secure storage)
     # 5. role (e.g., 'student', 'admin')
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             college_id TEXT PRIMARY KEY NOT NULL,
             name TEXT NOT NULL,
@@ -50,7 +52,8 @@ def init_db():
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL
         );
-    """)
+        """
+    )
     conn.commit()
 
     # Close the connection unless it's an in-memory database. Tests
@@ -66,7 +69,7 @@ def init_db():
 
     # If `main_db_file` is empty/None it's likely an in-memory DB; only
     # close when a real file path is present and it's not ':memory:'.
-    if main_db_file and main_db_file != ':memory:':
+    if main_db_file and main_db_file != ":memory:":
         conn.close()
 
     print("Database initialization complete.")
@@ -84,30 +87,28 @@ def validate_registration_data(data):
     errors = []
 
     # Check for presence of all required fields
-    if not all(key in data and data[key] for key in ['college_id', 'name', 'email', 'password', 'role']):
+    if not all(
+        key in data and data[key] for key in ["college_id", "name", "email", "password", "role"]
+    ):
         errors.append("All fields (College ID, Name, Email, Password, Role) are required.")
         return False, errors
 
     # Email format validation
-    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if not re.match(email_regex, data['email']):
+    email_regex = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    if not re.match(email_regex, data["email"]):
         errors.append("Invalid email format.")
 
-    password = data['password']
+    password = data["password"]
     # Password minimum length check
     if len(password) < 8:
         errors.append("Password must be at least 8 characters long.")
     # Password complexity checks (1 number, 1 symbol)
-    if not re.search(r'\d', password):
+    if not re.search(r"\d", password):
         errors.append("Password must contain at least one number.")
     if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        errors.append(
-            "Password must contain at least one symbol (!@#$%^&*...)."
-        )
+        errors.append("Password must contain at least one symbol (!@#$%^&*...).")
 
     return not errors, errors
-
-# registration helper
 
 
 def register_user(data):
@@ -120,7 +121,7 @@ def register_user(data):
         return False, "Validation failed: " + ", ".join(errors)
 
     # Hash the password for secure storage
-    hashed_password = generate_password_hash(data['password'])
+    hashed_password = generate_password_hash(data["password"])
 
     conn = get_db_connection()
     try:
@@ -138,8 +139,10 @@ def register_user(data):
         )
         conn.commit()
         conn.execute(
-            "INSERT INTO users (college_id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-            (data['college_id'], data['name'], data['email'], hashed_password, data['role'])
+            "INSERT INTO users "
+            "(college_id, name, email, password_hash, role) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (data["college_id"], data["name"], data["email"], hashed_password, data["role"]),
         )
         conn.commit()
         return True, "Success: User registration complete. Redirecting to login page."
@@ -148,13 +151,15 @@ def register_user(data):
         if "UNIQUE constraint failed: users.email" in str(e):
             return False, "Duplicate email validation error: This email is already registered."
         elif "UNIQUE constraint failed: users.college_id" in str(e):
-            return False, "Duplicate college ID validation error: This college ID is already registered."
+            return (
+                False,
+                "Duplicate college ID validation error: This college ID is already registered.",
+            )
         else:
             print(f"Database Error: {e}")
             return False, "A database error occurred during registration."
     finally:
-        # Only close the connection if it's not an in-memory database
-        # (testing uses ':memory:').
+        # Only close the connection if it's not an in-memory database (testing uses :memory:)
         if DATABASE != ":memory:":
             conn.close()
 
@@ -163,7 +168,7 @@ def _generate_token(payload: dict) -> str:
     """Return a JWT for the given payload (adds expiry)."""
     payload_copy = payload.copy()
     # Add expiry in a separate variable to keep line lengths short
-    expiry = datetime.datetime.utcnow() + datetime.timedelta(
+    expiry = datetime.datetime.now(timezone.utc) + datetime.timedelta(
         seconds=JWT_EXP_DELTA_SECONDS
     )
     payload_copy["exp"] = expiry
@@ -177,7 +182,7 @@ def _generate_token(payload: dict) -> str:
 
 # --- API Endpoint ---
 
-@app.route('/api/register', methods=['POST'])
+@app.route("/api/register", methods=["POST"])
 def handle_registration():
     """API endpoint to process user registration."""
     # Use silent=True so invalid JSON doesn't raise a BadRequest that
@@ -253,7 +258,7 @@ def handle_me():
 
 
 # --- Application Runner ---
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Initialize the database before running the app
     # This checks if the file exists and runs the init_db function.
     if not os.path.exists(DATABASE):
