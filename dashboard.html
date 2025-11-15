@@ -108,10 +108,10 @@
             margin-bottom: 10px;
         }
         .admin-only {
-            display: none;
+            display: none !important;
         }
         .admin-only.visible {
-            display: block;
+            display: block !important;
         }
         .error {
             background: #fee;
@@ -198,6 +198,61 @@
             padding: 40px;
             color: #999;
         }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 30px;
+            border: 1px solid #888;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover,
+        .close:focus {
+            color: #000;
+        }
+        .btn-edit {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .btn-edit:hover {
+            background: #0056b3;
+        }
+        .btn-delete {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-delete:hover {
+            background: #c82333;
+        }
     </style>
 </head>
 <body>
@@ -219,19 +274,19 @@
         </div>
 
         <div class="dashboard-grid">
-            <div class="card">
+            <div class="card" onclick="showBookingModal()">
                 <div class="card-icon">📅</div>
                 <h3>Reserve Lab</h3>
                 <p>Book a lab slot for your work</p>
             </div>
 
-            <div class="card">
+            <div class="card" onclick="showMyBookings()">
                 <div class="card-icon">📋</div>
                 <h3>My Reservations</h3>
                 <p>View and manage your bookings</p>
             </div>
 
-            <div class="card">
+            <div class="card" onclick="showAvailableLabs()">
                 <div class="card-icon">🔍</div>
                 <h3>Available Labs</h3>
                 <p>Browse all available laboratory spaces</p>
@@ -243,7 +298,7 @@
                 <p>View and manage user accounts</p>
             </div>
 
-            <div class="card admin-only">
+            <div class="card admin-only" onclick="showLabManagement()">
                 <div class="card-icon">🏪</div>
                 <h3>Manage Labs</h3>
                 <p>Configure laboratory resources</p>
@@ -271,6 +326,85 @@
                 <div class="empty-state">Loading your bookings...</div>
             </div>
         </div>
+
+        <!-- Lab Management Section (Admin Only) -->
+        <div class="bookings-section admin-only" id="labManagementSection" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Lab Management</h2>
+                <button class="btn-approve" onclick="showCreateLabModal()">+ Add New Lab</button>
+            </div>
+            <div id="labsContainer">
+                <div class="empty-state">Loading labs...</div>
+            </div>
+        </div>
+
+        <!-- Booking Reservation Modal -->
+        <div id="bookingModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeBookingModal()">&times;</span>
+                <h2 id="bookingModalTitle">Reserve Lab</h2>
+                <form id="bookingForm" onsubmit="createBooking(event)">
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingLabName" style="display: block; margin-bottom: 5px; font-weight: 600;">Lab Name *</label>
+                        <select id="bookingLabName" name="lab_name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="">Select a lab...</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingDate" style="display: block; margin-bottom: 5px; font-weight: 600;">Booking Date *</label>
+                        <input type="date" id="bookingDate" name="booking_date" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" min="">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingStartTime" style="display: block; margin-bottom: 5px; font-weight: 600;">Start Time *</label>
+                        <input type="time" id="bookingStartTime" name="start_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingEndTime" style="display: block; margin-bottom: 5px; font-weight: 600;">End Time *</label>
+                        <input type="time" id="bookingEndTime" name="end_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" onclick="closeBookingModal()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button type="submit" class="btn-approve">Create Booking</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Available Labs Section -->
+        <div class="bookings-section" id="availableLabsSection" style="display: none;">
+            <h2>Available Labs</h2>
+            <div id="availableLabsContainer">
+                <div class="empty-state">Loading available labs...</div>
+            </div>
+        </div>
+
+        <!-- Lab Create/Edit Modal -->
+        <div id="labModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeLabModal()">&times;</span>
+                <h2 id="modalTitle">Create Lab</h2>
+                <form id="labForm" onsubmit="saveLab(event)">
+                    <div style="margin-bottom: 15px;">
+                        <label for="labName" style="display: block; margin-bottom: 5px; font-weight: 600;">Lab Name *</label>
+                        <input type="text" id="labName" name="name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="labCapacity" style="display: block; margin-bottom: 5px; font-weight: 600;">Capacity *</label>
+                        <input type="number" id="labCapacity" name="capacity" min="1" max="1000" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="labEquipment" style="display: block; margin-bottom: 5px; font-weight: 600;">Equipment (JSON array or comma-separated) *</label>
+                        <textarea id="labEquipment" name="equipment" rows="4" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;" placeholder='["Computer", "Projector", "Whiteboard"]'></textarea>
+                        <small style="color: #666;">Enter equipment as a JSON array or comma-separated list</small>
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" onclick="closeLabModal()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button type="submit" class="btn-approve">Save Lab</button>
+                    </div>
+                    <input type="hidden" id="labId" name="id">
+                </form>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -291,12 +425,12 @@
 
                 // Show admin-only cards for admins
                 if (userData.role === 'admin') {
-                    document.querySelectorAll('.admin-only').forEach(card => {
-                        card.classList.add('visible');
+                    document.querySelectorAll('.admin-only').forEach(element => {
+                        element.classList.add('visible');
                     });
                     document.getElementById('adminBookingsSection').style.display = 'block';
                     document.getElementById('welcomeMessage').textContent =
-                        `Welcome, ${userData.name}! You have administrative access.`;
+                        `Welcome, ${userData.name}! You have administrative access. Click "Manage Labs" to create labs.`;
                     loadPendingBookings();
                 } else {
                     document.getElementById('userBookingsSection').style.display = 'block';
@@ -390,21 +524,33 @@
         // Load user bookings
         async function loadUserBookings() {
             const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('userBookingsContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
             try {
                 const response = await fetch('http://localhost:5000/api/bookings', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
                     },
                 });
 
+                console.log('Bookings response status:', response.status);
+
                 if (!response.ok) {
-                    throw new Error('Failed to load bookings');
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load bookings:', errorData);
+                    throw new Error(errorData.message || 'Failed to load bookings');
                 }
 
                 const data = await response.json();
+                console.log('Bookings data:', data);
                 const container = document.getElementById('userBookingsContainer');
 
-                if (data.bookings && data.bookings.length > 0) {
+                if (data && data.success && data.bookings && data.bookings.length > 0) {
                     let html = '<table class="bookings-table"><thead><tr>';
                     html += '<th>ID</th><th>Lab</th><th>Date</th><th>Time</th><th>Status</th>';
                     html += '</tr></thead><tbody>';
@@ -422,12 +568,12 @@
                     html += '</tbody></table>';
                     container.innerHTML = html;
                 } else {
-                    container.innerHTML = '<div class="empty-state">No bookings found</div>';
+                    container.innerHTML = '<div class="empty-state">No bookings found. Create your first booking above.</div>';
                 }
             } catch (error) {
                 console.error('Error loading user bookings:', error);
                 document.getElementById('userBookingsContainer').innerHTML =
-                    '<div class="empty-state">Error loading bookings</div>';
+                    `<div class="empty-state">Error loading bookings: ${error.message}. Check console for details.</div>`;
             }
         }
 
@@ -480,6 +626,486 @@
             } catch (error) {
                 console.error('Error rejecting booking:', error);
                 alert('Error rejecting booking');
+            }
+        }
+
+        // Lab Management Functions
+        function showLabManagement() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('userBookingsSection').style.display = 'none';
+            document.getElementById('availableLabsSection').style.display = 'none';
+            
+            // Show lab management section
+            const labSection = document.getElementById('labManagementSection');
+            labSection.style.display = 'block';
+            labSection.classList.add('visible');
+            
+            // Scroll to lab management section smoothly
+            setTimeout(() => {
+                labSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+            
+            loadLabs();
+        }
+
+        async function loadLabs() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('labsContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
+            try {
+                console.log('Loading labs...');
+                const response = await fetch('http://localhost:5000/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Labs response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load labs:', errorData);
+                    throw new Error(errorData.message || 'Failed to load labs');
+                }
+
+                const data = await response.json();
+                console.log('Labs data:', data);
+                const container = document.getElementById('labsContainer');
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th><th>Actions</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.labs.forEach(lab => {
+                        // Parse equipment if it's JSON string
+                        let equipmentDisplay = lab.equipment;
+                        try {
+                            const eq = JSON.parse(lab.equipment);
+                            if (Array.isArray(eq)) {
+                                equipmentDisplay = eq.join(', ');
+                            }
+                        } catch (e) {
+                            // Not JSON, use as-is
+                        }
+                        
+                        const safeName = lab.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        
+                        html += `<tr>
+                            <td>${lab.id}</td>
+                            <td>${lab.name}</td>
+                            <td>${lab.capacity}</td>
+                            <td>${equipmentDisplay}</td>
+                            <td>${new Date(lab.created_at).toLocaleDateString()}</td>
+                            <td>
+                                <button class="btn-edit" onclick="editLab(${lab.id})">Edit</button>
+                                <button class="btn-delete" onclick="deleteLab(${lab.id}, '${safeName}')">Delete</button>
+                            </td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No labs found. Click "Add New Lab" to create one.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading labs:', error);
+                document.getElementById('labsContainer').innerHTML =
+                    `<div class="empty-state">Error loading labs: ${error.message}. Check console for details.</div>`;
+            }
+        }
+
+        function showCreateLabModal() {
+            document.getElementById('labId').value = '';
+            document.getElementById('labName').value = '';
+            document.getElementById('labCapacity').value = '';
+            document.getElementById('labEquipment').value = '';
+            document.getElementById('modalTitle').textContent = 'Create Lab';
+            document.getElementById('labModal').style.display = 'block';
+        }
+
+        async function editLab(labId) {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+
+            try {
+                console.log('Loading lab for edit:', labId);
+                const response = await fetch(`http://localhost:5000/api/labs/${labId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Get lab response:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    throw new Error(errorData.message || 'Failed to load lab');
+                }
+
+                const data = await response.json();
+                console.log('Lab data:', data);
+
+                if (!data.success || !data.lab) {
+                    throw new Error('Invalid lab data received');
+                }
+
+                const lab = data.lab;
+
+                document.getElementById('labId').value = lab.id;
+                document.getElementById('labName').value = lab.name;
+                document.getElementById('labCapacity').value = lab.capacity;
+                
+                // Parse equipment if it's JSON string
+                let equipmentValue = lab.equipment;
+                try {
+                    const eq = JSON.parse(lab.equipment);
+                    if (Array.isArray(eq)) {
+                        equipmentValue = JSON.stringify(eq, null, 2);
+                    }
+                } catch (e) {
+                    // Not JSON, use as-is
+                }
+                document.getElementById('labEquipment').value = equipmentValue;
+                
+                document.getElementById('modalTitle').textContent = 'Edit Lab';
+                document.getElementById('labModal').style.display = 'block';
+            } catch (error) {
+                console.error('Error loading lab:', error);
+                alert('Failed to load lab data: ' + error.message);
+            }
+        }
+
+        function closeLabModal() {
+            document.getElementById('labModal').style.display = 'none';
+        }
+
+        async function saveLab(event) {
+            event.preventDefault();
+            const token = localStorage.getItem('token');
+            const labId = document.getElementById('labId').value;
+            const name = document.getElementById('labName').value.trim();
+            const capacity = parseInt(document.getElementById('labCapacity').value);
+            let equipment = document.getElementById('labEquipment').value.trim();
+
+            // Try to parse as JSON, if fails, treat as comma-separated
+            try {
+                const parsed = JSON.parse(equipment);
+                if (Array.isArray(parsed)) {
+                    equipment = parsed;
+                } else {
+                    equipment = [equipment];
+                }
+            } catch (e) {
+                // Not valid JSON, split by comma
+                if (equipment.includes(',')) {
+                    equipment = equipment.split(',').map(item => item.trim()).filter(item => item);
+                } else {
+                    equipment = [equipment];
+                }
+            }
+
+            const payload = {
+                name: name,
+                capacity: capacity,
+                equipment: equipment
+            };
+
+            try {
+                const url = labId ? `http://localhost:5000/api/labs/${labId}` : 'http://localhost:5000/api/labs';
+                const method = labId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                console.log('Save lab response:', response.status, data);
+
+                if (response.ok && data.success) {
+                    alert(data.message || 'Lab saved successfully!');
+                    closeLabModal();
+                    // Refresh the lab list
+                    loadLabs();
+                    // If booking modal was open, refresh it too
+                    const bookingModal = document.getElementById('bookingModal');
+                    if (bookingModal && bookingModal.style.display === 'block') {
+                        showBookingModal();
+                    }
+                } else {
+                    alert(data.message || 'Failed to save lab');
+                }
+            } catch (error) {
+                console.error('Error saving lab:', error);
+                alert('Error saving lab: ' + error.message);
+            }
+        }
+
+        async function deleteLab(labId, labName) {
+            if (!confirm(`Are you sure you want to delete lab "${labName}"? This will also delete all associated availability slots.`)) {
+                return;
+            }
+
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch(`http://localhost:5000/api/labs/${labId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                const data = await response.json();
+                console.log('Delete lab response:', response.status, data);
+
+                if (response.ok && data.success) {
+                    alert(data.message || 'Lab deleted successfully!');
+                    loadLabs();
+                } else {
+                    alert(data.message || 'Failed to delete lab');
+                }
+            } catch (error) {
+                console.error('Error deleting lab:', error);
+                alert('Error deleting lab: ' + error.message);
+            }
+        }
+
+        // Booking Reservation Functions
+        async function showBookingModal() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+
+            // Set minimum date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('bookingDate').setAttribute('min', today);
+
+            // Load labs into dropdown
+            try {
+                const response = await fetch('http://localhost:5000/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load labs');
+                }
+
+                const data = await response.json();
+                const labSelect = document.getElementById('bookingLabName');
+                labSelect.innerHTML = '<option value="">Select a lab...</option>';
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    data.labs.forEach(lab => {
+                        const option = document.createElement('option');
+                        option.value = lab.name;
+                        option.textContent = `${lab.name} (Capacity: ${lab.capacity})`;
+                        labSelect.appendChild(option);
+                    });
+                    document.getElementById('bookingModal').style.display = 'block';
+                } else {
+                    // Check if user is admin
+                    const user = localStorage.getItem('user');
+                    let isAdmin = false;
+                    try {
+                        const userData = JSON.parse(user);
+                        isAdmin = userData.role === 'admin';
+                    } catch (e) {
+                        console.error('Error parsing user data:', e);
+                    }
+                    
+                    if (isAdmin) {
+                        const createLab = confirm('No labs available. Would you like to create a lab now? Click OK to go to Lab Management.');
+                        if (createLab) {
+                            showLabManagement();
+                            setTimeout(() => showCreateLabModal(), 300);
+                        }
+                    } else {
+                        alert('No labs available. Please contact an admin to create labs first.');
+                    }
+                    return;
+                }
+            } catch (error) {
+                console.error('Error loading labs:', error);
+                alert('Failed to load labs: ' + error.message);
+            }
+        }
+
+        function closeBookingModal() {
+            document.getElementById('bookingModal').style.display = 'none';
+            document.getElementById('bookingForm').reset();
+        }
+
+        async function createBooking(event) {
+            event.preventDefault();
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+
+            const labName = document.getElementById('bookingLabName').value.trim();
+            const bookingDate = document.getElementById('bookingDate').value;
+            const startTime = document.getElementById('bookingStartTime').value;
+            const endTime = document.getElementById('bookingEndTime').value;
+
+            // Validate time range
+            if (startTime >= endTime) {
+                alert('End time must be after start time.');
+                return;
+            }
+
+            const payload = {
+                lab_name: labName,
+                booking_date: bookingDate,
+                start_time: startTime,
+                end_time: endTime
+            };
+
+            try {
+                const response = await fetch('http://localhost:5000/api/bookings', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                console.log('Create booking response:', response.status, data);
+
+                if (response.ok && data.success) {
+                    alert(data.message || 'Booking created successfully!');
+                    closeBookingModal();
+                    loadUserBookings();
+                } else {
+                    alert(data.message || 'Failed to create booking');
+                }
+            } catch (error) {
+                console.error('Error creating booking:', error);
+                alert('Error creating booking: ' + error.message);
+            }
+        }
+
+        function showMyBookings() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('labManagementSection').style.display = 'none';
+            document.getElementById('availableLabsSection').style.display = 'none';
+            
+            // Show user bookings section
+            document.getElementById('userBookingsSection').style.display = 'block';
+            loadUserBookings();
+        }
+
+        async function showAvailableLabs() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('userBookingsSection').style.display = 'none';
+            document.getElementById('labManagementSection').style.display = 'none';
+            
+            // Show available labs section
+            document.getElementById('availableLabsSection').style.display = 'block';
+            await loadAvailableLabs();
+        }
+
+        async function loadAvailableLabs() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('availableLabsContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
+            try {
+                console.log('Loading available labs...');
+                const response = await fetch('http://localhost:5000/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Available labs response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load labs:', errorData);
+                    throw new Error(errorData.message || 'Failed to load labs');
+                }
+
+                const data = await response.json();
+                console.log('Available labs data:', data);
+                const container = document.getElementById('availableLabsContainer');
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.labs.forEach(lab => {
+                        // Parse equipment if it's JSON string
+                        let equipmentDisplay = lab.equipment;
+                        try {
+                            const eq = JSON.parse(lab.equipment);
+                            if (Array.isArray(eq)) {
+                                equipmentDisplay = eq.join(', ');
+                            }
+                        } catch (e) {
+                            // Not JSON, use as-is
+                        }
+                        
+                        html += `<tr>
+                            <td>${lab.id}</td>
+                            <td>${lab.name}</td>
+                            <td>${lab.capacity}</td>
+                            <td>${equipmentDisplay}</td>
+                            <td>${new Date(lab.created_at).toLocaleDateString()}</td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No labs available. Contact an admin to create labs.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading available labs:', error);
+                document.getElementById('availableLabsContainer').innerHTML =
+                    `<div class="empty-state">Error loading labs: ${error.message}. Check console for details.</div>`;
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const labModal = document.getElementById('labModal');
+            const bookingModal = document.getElementById('bookingModal');
+            if (event.target === labModal) {
+                closeLabModal();
+            }
+            if (event.target === bookingModal) {
+                closeBookingModal();
             }
         }
 
