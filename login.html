@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Lab Reservation System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 400px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .message {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 5px;
+            text-align: center;
+            display: none;
+        }
+        .message.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+        .message.success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>Lab Reservation System</h1>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="collegeId">College ID</label>
+                <input type="text" id="collegeId" name="college_id" placeholder="e.g., PES123456" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Enter your password" required>
+            </div>
+            <button type="submit">Login</button>
+            <div class="loading" id="loading">Logging in...</div>
+            <div class="message" id="message"></div>
+        </form>
+        <p style="text-align: center; margin-top: 20px; color: #999; font-size: 14px;">
+            <a href="register.html" style="color: #667eea; text-decoration: none;">New user? Register here</a>
+        </p>
+    </div>
+
+    <script>
+        const form = document.getElementById('loginForm');
+        const loading = document.getElementById('loading');
+        const message = document.getElementById('message');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const collegeId = document.getElementById('collegeId').value;
+            const password = document.getElementById('password').value;
+
+            loading.style.display = 'block';
+            message.style.display = 'none';
+
+            try {
+                const response = await fetch('http://localhost:5000/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        college_id: collegeId,
+                        password: password,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Store token in localStorage
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify({
+                        college_id: collegeId,
+                        role: data.role,
+                        name: data.name,
+                    }));
+                    // Redirect to dashboard
+                    window.location.href = 'dashboard.html';
+                } else {
+                    message.className = 'message error';
+                    message.textContent = data.message || 'Login failed. Please try again.';
+                    message.style.display = 'block';
+                }
+            } catch (error) {
+                message.className = 'message error';
+                message.textContent = 'Network error. Please try again.';
+                message.style.display = 'block';
+                console.error('Error:', error);
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

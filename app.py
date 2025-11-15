@@ -1,9 +1,13 @@
 import sqlite3
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 import re
 import os
+import jwt
+import datetime
+from datetime import timezone
 
 # --- Configuration ---
 app = Flask(__name__)
@@ -13,6 +17,9 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "lab_reservations.db")
 print("Using database file:", DATABASE)
+# Secret used for signing JWTs. In production, set via environment variable.
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
+JWT_EXP_DELTA_SECONDS = int(os.getenv("JWT_EXP_DELTA_SECONDS", 3600))
 
 # --- Database Setup ---
 
@@ -29,7 +36,6 @@ def init_db():
     print("Initializing database...")
     conn = get_db_connection()
     cursor = conn.cursor()
-
     # Create the users table based on user story requirements:
     # 1. college_id (unique, primary key)
     # 2. name
@@ -45,13 +51,27 @@ def init_db():
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL
         );
-    """
+        """
     )
     conn.commit()
-    conn.close()
+
+    # Close the connection unless it's an in-memory database. Tests
+    # commonly supply an in-memory connection via monkeypatching
+    # `get_db_connection()`. Detect the underlying database file using
+    # PRAGMA database_list; the file field will be ':memory:' for an
+    # in-memory DB.
+    try:
+        db_list = conn.execute("PRAGMA database_list").fetchall()
+        main_db_file = db_list[0][2] if db_list and len(db_list[0]) > 2 else None
+    except Exception:
+        main_db_file = None
+
+    # If `main_db_file` is empty/None it's likely an in-memory DB; only
+    # close when a real file path is present and it's not ':memory:'.
+    if main_db_file and main_db_file != ":memory:":
+        conn.close()
+
     print("Database initialization complete.")
-
-
 # --- Helper Functions (Core Logic) ---
 
 
@@ -103,6 +123,19 @@ def register_user(data):
 
     conn = get_db_connection()
     try:
+        # Ensure users table exists (helps tests that swap DBs at runtime)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                college_id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL
+            );
+            """
+        )
+        conn.commit()
         conn.execute(
             "INSERT INTO users "
             "(college_id, name, email, password_hash, role) "
@@ -129,13 +162,30 @@ def register_user(data):
             conn.close()
 
 
-# --- API Endpoint ---
+def _generate_token(payload: dict) -> str:
+    """Return a JWT for the given payload (adds expiry)."""
+    payload_copy = payload.copy()
+    # Add expiry in a separate variable to keep line lengths short
+    expiry = datetime.datetime.now(timezone.utc) + datetime.timedelta(
+        seconds=JWT_EXP_DELTA_SECONDS
+    )
+    payload_copy["exp"] = expiry
+    token = jwt.encode(
+        payload_copy, SECRET_KEY, algorithm="HS256"
+    )
+    if isinstance(token, bytes):
+        token = token.decode("utf-8")
+    return token
 
+
+# --- API Endpoint ---
 
 @app.route("/api/register", methods=["POST"])
 def handle_registration():
     """API endpoint to process user registration."""
-    data = request.get_json()
+    # Use silent=True so invalid JSON doesn't raise a BadRequest that
+    # causes Flask to return an HTML error page. We want a JSON response.
+    data = request.get_json(silent=True)
     # Log incoming registration requests for debugging (helps verify POST arrival)
     print(f"Received registration request from {request.remote_addr}: {data}")
     if data is None:
@@ -149,6 +199,60 @@ def handle_registration():
     else:
         # User story duplicate/validation error
         return jsonify({"message": message, "success": False}), 400
+
+
+@app.route("/api/login", methods=["POST"])
+def handle_login():
+    """Authenticate user and return JWT token on success."""
+    data = request.get_json()
+    if not data or "college_id" not in data or "password" not in data:
+        return jsonify({"message": "College ID and password required."}), 400
+
+    college_id = data["college_id"]
+    password = data["password"]
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT college_id, password_hash, name, role FROM users WHERE college_id = ?", (college_id,))
+    row = cursor.fetchone()
+    # Do not leak whether the user exists
+    if row is None:
+        if DATABASE != ":memory:":
+            conn.close()
+        return jsonify({"message": "Invalid credentials.", "success": False}), 401
+
+    stored_hash = row["password_hash"]
+    if not check_password_hash(stored_hash, password):
+        if DATABASE != ":memory:":
+            conn.close()
+        return jsonify({"message": "Invalid credentials.", "success": False}), 401
+
+    payload = {"college_id": row["college_id"], "role": row["role"], "name": row["name"]}
+    token = _generate_token(payload)
+
+    if DATABASE != ":memory:":
+        conn.close()
+
+    return jsonify({"token": token, "success": True, "role": row["role"], "name": row["name"]}), 200
+
+
+@app.route("/api/me", methods=["GET"])
+def handle_me():
+    """Return user info based on Bearer token."""
+    auth = request.headers.get("Authorization", None)
+    if not auth or not auth.startswith("Bearer "):
+        return jsonify({"message": "Missing or invalid Authorization header."}), 401
+
+    token = auth.split(" ", 1)[1]
+    try:
+        data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        return jsonify({"message": "Token expired."}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"message": "Invalid token."}), 401
+
+    # Return minimal user info
+    return jsonify({"college_id": data.get("college_id"), "role": data.get("role"), "name": data.get("name")}), 200
 
 
 # --- Application Runner ---
