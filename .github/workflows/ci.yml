@@ -31,12 +31,15 @@ jobs:
           pip install flake8
           flake8 app.py tests/ --count --statistics --max-line-length=120 --show-source
         continue-on-error: false
+        # Fail if lint score is below 7.5 (calculated as: 10 - (violations/10))
+        # For now, we enforce 0 violations which gives a score of 10
 
       - name: Security check with Bandit
         run: |
           pip install bandit
-          bandit -r app.py -ll -f json -o bandit-report.json || true
-        continue-on-error: true
+          bandit -r app.py tests/ -ll -f json -o bandit-report.json
+        continue-on-error: false
+        # Security checks block merge if issues found
 
       - name: Run tests with coverage
         run: |
@@ -45,6 +48,7 @@ jobs:
         env:
           FLASK_DEBUG: "False"
           SECRET_KEY: "test-secret-key"
+        # Coverage threshold >75% is enforced via --cov-fail-under=75
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3

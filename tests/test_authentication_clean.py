@@ -21,6 +21,22 @@ def client(monkeypatch):
         );
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bookings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            college_id TEXT NOT NULL,
+            lab_name TEXT NOT NULL,
+            booking_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            FOREIGN KEY (college_id) REFERENCES users(college_id)
+        );
+        """
+    )
     conn.commit()
     monkeypatch.setattr("app.get_db_connection", lambda: conn)
     monkeypatch.setattr("app.DATABASE", ":memory:")
@@ -314,3 +330,456 @@ def test_login_response_includes_user_info(client):
     assert "token" in data
     assert data["role"] == "student"
     assert data["name"] == "UserInfo"
+
+
+# --- Role-Based Access Tests ---
+
+def test_registration_with_lab_assistant_role(client):
+    r = client.post(
+        "/api/register",
+        json={
+            "college_id": "LA1",
+            "name": "Lab Assistant",
+            "email": "la@pesu.edu",
+            "password": "LabPass1!",
+            "role": "lab_assistant",
+        },
+    )
+    assert r.status_code == 201
+    assert r.get_json()["success"] is True
+
+
+def test_registration_with_invalid_role(client):
+    r = client.post(
+        "/api/register",
+        json={
+            "college_id": "IR1",
+            "name": "Invalid Role",
+            "email": "ir@pesu.edu",
+            "password": "ValidPass1!",
+            "role": "invalid_role",
+        },
+    )
+    assert r.status_code == 400
+    assert "role" in r.get_json()["message"].lower()
+
+
+# --- Booking Tests ---
+
+def test_create_booking_requires_auth(client):
+    r = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": "Lab A",
+            "booking_date": "2024-12-25",
+            "start_time": "10:00",
+            "end_time": "12:00",
+        },
+    )
+    assert r.status_code == 401
+
+
+def test_create_booking_success(client):
+    # Register and login
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "B1",
+            "name": "Booker",
+            "email": "b1@pesu.edu",
+            "password": "BookPass1!",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "B1", "password": "BookPass1!"})
+    token = login_resp.get_json()["token"]
+
+    # Create booking
+    r = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": "Lab A",
+            "booking_date": "2024-12-25",
+            "start_time": "10:00",
+            "end_time": "12:00",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 201
+    assert r.get_json()["success"] is True
+    assert "booking_id" in r.get_json()
+
+
+def test_create_booking_missing_fields(client):
+    # Register and login
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "B2",
+            "name": "Booker2",
+            "email": "b2@pesu.edu",
+            "password": "BookPass1!",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "B2", "password": "BookPass1!"})
+    token = login_resp.get_json()["token"]
+
+    # Create booking with missing fields
+    r = client.post(
+        "/api/bookings",
+        json={"lab_name": "Lab A"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 400
+
+
+def test_create_booking_invalid_date_format(client):
+    # Register and login
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "B3",
+            "name": "Booker3",
+            "email": "b3@pesu.edu",
+            "password": "BookPass1!",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "B3", "password": "BookPass1!"})
+    token = login_resp.get_json()["token"]
+
+    # Create booking with invalid date
+    r = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": "Lab A",
+            "booking_date": "invalid-date",
+            "start_time": "10:00",
+            "end_time": "12:00",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 400
+
+
+def test_get_bookings_requires_auth(client):
+    r = client.get("/api/bookings")
+    assert r.status_code == 401
+
+
+def test_get_bookings_student_sees_only_own(client):
+    # Register student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "S1",
+            "name": "Student1",
+            "email": "s1@pesu.edu",
+            "password": "StudPass1!",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "S1", "password": "StudPass1!"})
+    token = login_resp.get_json()["token"]
+
+    # Create booking
+    client.post(
+        "/api/bookings",
+        json={
+            "lab_name": "Lab A",
+            "booking_date": "2024-12-25",
+            "start_time": "10:00",
+            "end_time": "12:00",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    # Get bookings
+    r = client.get("/api/bookings", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert len(r.get_json()["bookings"]) == 1
+    assert r.get_json()["bookings"][0]["college_id"] == "S1"
+
+
+def test_get_pending_bookings_requires_admin(client):
+    # Register student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "S2",
+            "name": "Student2",
+            "email": "s2@pesu.edu",
+            "password": "StudPass1!",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "S2", "password": "StudPass1!"})
+    token = login_resp.get_json()["token"]
+
+    # Try to access admin endpoint
+    r = client.get("/api/bookings/pending", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403
+
+
+def test_get_pending_bookings_admin_success(client):
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "A1",
+            "name": "Admin1",
+            "email": "a1@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "A1", "password": "AdminPass1!"})
+    admin_token = login_resp.get_json()["token"]
+
+    # Register student and create booking
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "S3",
+            "name": "Student3",
+            "email": "s3@pesu.edu",
+            "password": "StudPass1!",
+            "role": "student",
+        },
+    )
+    student_login = client.post("/api/login", json={"college_id": "S3", "password": "StudPass1!"})
+    student_token = student_login.get_json()["token"]
+
+    client.post(
+        "/api/bookings",
+        json={
+            "lab_name": "Lab B",
+            "booking_date": "2024-12-26",
+            "start_time": "14:00",
+            "end_time": "16:00",
+        },
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+
+    # Admin gets pending bookings
+    r = client.get("/api/bookings/pending", headers={"Authorization": f"Bearer {admin_token}"})
+    assert r.status_code == 200
+    assert len(r.get_json()["bookings"]) == 1
+    assert r.get_json()["bookings"][0]["status"] == "pending"
+
+
+def test_approve_booking_requires_admin(client):
+    # Register student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "S4",
+            "name": "Student4",
+            "email": "s4@pesu.edu",
+            "password": "StudPass1!",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "S4", "password": "StudPass1!"})
+    token = login_resp.get_json()["token"]
+
+    # Try to approve (should fail)
+    r = client.post("/api/bookings/1/approve", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403
+
+
+def test_approve_booking_admin_success(client):
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "A2",
+            "name": "Admin2",
+            "email": "a2@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "A2", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register student and create booking
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "S5",
+            "name": "Student5",
+            "email": "s5@pesu.edu",
+            "password": "StudPass1!",
+            "role": "student",
+        },
+    )
+    student_login = client.post("/api/login", json={"college_id": "S5", "password": "StudPass1!"})
+    student_token = student_login.get_json()["token"]
+
+    booking_resp = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": "Lab C",
+            "booking_date": "2024-12-27",
+            "start_time": "09:00",
+            "end_time": "11:00",
+        },
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    booking_id = booking_resp.get_json()["booking_id"]
+
+    # Admin approves booking
+    r = client.post(
+        f"/api/bookings/{booking_id}/approve",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    assert r.get_json()["success"] is True
+
+    # Verify booking is approved
+    bookings_resp = client.get("/api/bookings", headers={"Authorization": f"Bearer {admin_token}"})
+    bookings = bookings_resp.get_json()["bookings"]
+    approved_booking = next((b for b in bookings if b["id"] == booking_id), None)
+    assert approved_booking is not None
+    assert approved_booking["status"] == "approved"
+
+
+def test_reject_booking_admin_success(client):
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "A3",
+            "name": "Admin3",
+            "email": "a3@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "A3", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register student and create booking
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "S6",
+            "name": "Student6",
+            "email": "s6@pesu.edu",
+            "password": "StudPass1!",
+            "role": "student",
+        },
+    )
+    student_login = client.post("/api/login", json={"college_id": "S6", "password": "StudPass1!"})
+    student_token = student_login.get_json()["token"]
+
+    booking_resp = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": "Lab D",
+            "booking_date": "2024-12-28",
+            "start_time": "13:00",
+            "end_time": "15:00",
+        },
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    booking_id = booking_resp.get_json()["booking_id"]
+
+    # Admin rejects booking
+    r = client.post(
+        f"/api/bookings/{booking_id}/reject",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    assert r.get_json()["success"] is True
+
+    # Verify booking is rejected
+    bookings_resp = client.get("/api/bookings", headers={"Authorization": f"Bearer {admin_token}"})
+    bookings = bookings_resp.get_json()["bookings"]
+    rejected_booking = next((b for b in bookings if b["id"] == booking_id), None)
+    assert rejected_booking is not None
+    assert rejected_booking["status"] == "rejected"
+
+
+def test_approve_nonexistent_booking(client):
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "A4",
+            "name": "Admin4",
+            "email": "a4@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "A4", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Try to approve nonexistent booking
+    r = client.post(
+        "/api/bookings/99999/approve",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 404
+
+
+def test_get_bookings_admin_sees_all(client):
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "A5",
+            "name": "Admin5",
+            "email": "a5@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "A5", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register two students
+    for i in range(2):
+        client.post(
+            "/api/register",
+            json={
+                "college_id": f"ST{i}",
+                "name": f"Student{i}",
+                "email": f"st{i}@pesu.edu",
+                "password": "StudPass1!",
+                "role": "student",
+            },
+        )
+        student_login = client.post(
+            "/api/login", json={"college_id": f"ST{i}", "password": "StudPass1!"}
+        )
+        student_token = student_login.get_json()["token"]
+
+        client.post(
+            "/api/bookings",
+            json={
+                "lab_name": f"Lab{i}",
+                "booking_date": "2024-12-29",
+                "start_time": "10:00",
+                "end_time": "12:00",
+            },
+            headers={"Authorization": f"Bearer {student_token}"},
+        )
+
+    # Admin should see all bookings
+    r = client.get("/api/bookings", headers={"Authorization": f"Bearer {admin_token}"})
+    assert r.status_code == 200
+    assert len(r.get_json()["bookings"]) == 2
+
+
+def test_init_db_creates_bookings_table(monkeypatch):
+    conn = sqlite3.connect(":memory:")
+    monkeypatch.setattr("app.get_db_connection", lambda: conn)
+    monkeypatch.setattr("app.DATABASE", ":memory:")
+    init_db()
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+    assert cur.fetchone() is not None
