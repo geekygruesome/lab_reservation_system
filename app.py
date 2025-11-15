@@ -17,7 +17,9 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Use an absolute path for the SQLite file (stable regardless of current working dir)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "lab_reservations.db")
-print("Using database file:", DATABASE)
+# Only print in non-testing environments to avoid CI noise
+if not os.getenv("PYTEST_CURRENT_TEST"):
+    print("Using database file:", DATABASE)
 # Secret used for signing JWTs. In production, set via environment variable.
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
 JWT_EXP_DELTA_SECONDS = int(os.getenv("JWT_EXP_DELTA_SECONDS", 3600))
