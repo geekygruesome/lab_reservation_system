@@ -110,7 +110,14 @@
             <div class="loading" id="loading">Logging in...</div>
             <div class="message" id="message"></div>
         </form>
-        <p style="text-align: center; margin-top: 20px; color: #999; font-size: 14px;">
+        <!-- Navigation Links -->
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="display: inline-flex; gap: 8px; background: #f3f4f6; padding: 4px; border-radius: 8px;">
+                <a href="index.html" style="padding: 8px 16px; background: white; color: #667eea; border-radius: 6px; text-decoration: none; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Register</a>
+                <a href="login.html" style="padding: 8px 16px; color: #667eea; text-decoration: none; font-weight: 500;">Login</a>
+            </div>
+        </div>
+        <p style="text-align: center; margin-top: 10px; color: #999; font-size: 14px;">
             <a href="register.html" style="color: #667eea; text-decoration: none;">New user? Register here</a>
         </p>
     </div>
@@ -123,13 +130,23 @@
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const collegeId = document.getElementById('collegeId').value;
+            const collegeId = document.getElementById('collegeId').value.trim();
             const password = document.getElementById('password').value;
+
+            // Validate inputs
+            if (!collegeId || !password) {
+                message.className = 'message error';
+                message.textContent = 'Please enter both College ID and Password.';
+                message.style.display = 'block';
+                return;
+            }
 
             loading.style.display = 'block';
             message.style.display = 'none';
+            form.querySelector('button[type="submit"]').disabled = true;
 
             try {
+                console.log('Attempting login for:', collegeId);
                 const response = await fetch('http://localhost:5000/api/login', {
                     method: 'POST',
                     headers: {
@@ -141,30 +158,54 @@
                     }),
                 });
 
-                const data = await response.json();
+                console.log('Response status:', response.status);
+                
+                let data;
+                try {
+                    data = await response.json();
+                    console.log('Response data:', data);
+                } catch (parseError) {
+                    console.error('Failed to parse JSON:', parseError);
+                    message.className = 'message error';
+                    message.textContent = 'Server error: Invalid response. Please check if the server is running.';
+                    message.style.display = 'block';
+                    loading.style.display = 'none';
+                    form.querySelector('button[type="submit"]').disabled = false;
+                    return;
+                }
 
-                if (response.ok && data.success) {
+                if (response.ok && data.success && data.token) {
                     // Store token in localStorage
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('user', JSON.stringify({
                         college_id: collegeId,
-                        role: data.role,
-                        name: data.name,
+                        role: data.role || 'student',
+                        name: data.name || 'User',
                     }));
-                    // Redirect to dashboard
-                    window.location.href = 'dashboard.html';
+                    console.log('Login successful! Redirecting to dashboard...');
+                    
+                    // Small delay to show success, then redirect
+                    message.className = 'message success';
+                    message.textContent = 'Login successful! Redirecting...';
+                    message.style.display = 'block';
+                    
+                    setTimeout(() => {
+                        window.location.href = 'dashboard.html';
+                    }, 500);
                 } else {
                     message.className = 'message error';
-                    message.textContent = data.message || 'Login failed. Please try again.';
+                    message.textContent = data.message || 'Login failed. Please check your credentials and try again.';
                     message.style.display = 'block';
+                    loading.style.display = 'none';
+                    form.querySelector('button[type="submit"]').disabled = false;
                 }
             } catch (error) {
+                console.error('Login error:', error);
                 message.className = 'message error';
-                message.textContent = 'Network error. Please try again.';
+                message.textContent = 'Network error: ' + error.message + '. Please check if the server is running on http://localhost:5000';
                 message.style.display = 'block';
-                console.error('Error:', error);
-            } finally {
                 loading.style.display = 'none';
+                form.querySelector('button[type="submit"]').disabled = false;
             }
         });
     </script>

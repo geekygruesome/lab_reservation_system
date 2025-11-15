@@ -77,13 +77,16 @@
                        class="form-input w-full px-4 py-2 border border-gray-300 rounded-lg text-text-dark placeholder-gray-400 focus:outline-none">
             </div>
 
-            <!-- Role (Placeholder for future complexity) -->
+            <!-- Role -->
             <div class="mb-4">
                 <label for="role" class="block text-sm font-medium text-text-dark mb-1">User Role</label>
                 <select id="role" name="role" required
                         class="form-input w-full px-4 py-2 border border-gray-300 rounded-lg text-text-dark focus:outline-none bg-white appearance-none">
-                    <option value="student" selected>Student</option>
+                    <option value="">Select your role</option>
+                    <option value="student">Student</option>
                     <option value="faculty">Faculty</option>
+                    <option value="lab_assistant">Lab Assistant</option>
+                    <option value="admin">Admin</option>
                 </select>
             </div>
 
@@ -109,13 +112,13 @@
         
         <p class="mt-6 text-center text-sm text-gray-500">
             Already have an account? 
-            <a href="#" class="text-primary-dark hover:text-blue-600 font-medium transition-colors duration-200">Log in here</a>
+            <a href="login.html" class="text-primary-dark hover:text-blue-600 font-medium transition-colors duration-200">Log in here</a>
         </p>
 
     </div>
 
     <script>
-        const API_URL = 'http://127.0.0.1:5000/api/register';
+        const API_URL = 'http://localhost:5000/api/register';
         const form = document.getElementById('registration-form');
         const messageBox = document.getElementById('message-box');
         const submitButton = document.getElementById('submit-button');
@@ -166,11 +169,13 @@
                 const result = await response.json();
 
                 if (response.ok && result.success) {
-                    // Success case: show confirmation and logically redirect (or mock redirect)
+                    // Success case: show confirmation and redirect to login
                     showMessage(result.message, 'success');
                     form.reset();
-                    // In a real app, this is where you would redirect the user to login.html
-                    // window.location.href = '/login.html'; 
+                    // Redirect to login page after 2 seconds
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 2000);
                 } else {
                     // Error case: show validation/duplicate error
                     showMessage(result.message, 'error');

@@ -1,7 +1,8 @@
 import sqlite3
 from functools import wraps
+import json
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
@@ -70,6 +71,32 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT,
             FOREIGN KEY (college_id) REFERENCES users(college_id)
+        );
+        """
+    )
+    # Create labs table for lab information
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS labs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            capacity INTEGER NOT NULL,
+            equipment TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        );
+        """
+    )
+    # Create availability_slots table for lab availability
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS availability_slots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lab_id INTEGER NOT NULL,
+            day_of_week TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE
         );
         """
     )
@@ -246,6 +273,39 @@ def require_role(*allowed_roles):
     return decorator
 
 
+# --- Static File Routes ---
+
+@app.route("/")
+def index():
+    """Serve index.html or redirect based on authentication."""
+    # Check if user has token in request (optional - can just serve index.html)
+    return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.route("/home")
+def home():
+    """Alias for index page."""
+    return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.route("/register.html")
+def serve_register():
+    """Serve register.html."""
+    return send_from_directory(BASE_DIR, "register.html")
+
+
+@app.route("/login.html")
+def serve_login():
+    """Serve login.html."""
+    return send_from_directory(BASE_DIR, "login.html")
+
+
+@app.route("/dashboard.html")
+def serve_dashboard():
+    """Serve dashboard.html."""
+    return send_from_directory(BASE_DIR, "dashboard.html")
+
+
 # --- API Endpoint ---
 
 @app.route("/api/register", methods=["POST"])
@@ -272,36 +332,46 @@ def handle_registration():
 @app.route("/api/login", methods=["POST"])
 def handle_login():
     """Authenticate user and return JWT token on success."""
-    data = request.get_json()
-    if not data or "college_id" not in data or "password" not in data:
-        return jsonify({"message": "College ID and password required."}), 400
+    # Use silent=True to handle invalid JSON gracefully
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
+
+    if "college_id" not in data or "password" not in data:
+        return jsonify({"message": "College ID and password required.", "success": False}), 400
 
     college_id = data["college_id"]
     password = data["password"]
 
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT college_id, password_hash, name, role FROM users WHERE college_id = ?", (college_id,))
-    row = cursor.fetchone()
-    # Do not leak whether the user exists
-    if row is None:
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT college_id, password_hash, name, role FROM users WHERE college_id = ?", (college_id,))
+        row = cursor.fetchone()
+
+        # Do not leak whether the user exists
+        if row is None:
+            return jsonify({"message": "Invalid credentials.", "success": False}), 401
+
+        stored_hash = row["password_hash"]
+        if not check_password_hash(stored_hash, password):
+            return jsonify({"message": "Invalid credentials.", "success": False}), 401
+
+        payload = {"college_id": row["college_id"], "role": row["role"], "name": row["name"]}
+        token = _generate_token(payload)
+
+        return jsonify({
+            "token": token,
+            "success": True,
+            "role": row["role"],
+            "name": row["name"]
+        }), 200
+    except Exception as e:
+        print(f"Login error: {e}")
+        return jsonify({"message": "An error occurred during login.", "success": False}), 500
+    finally:
         if DATABASE != ":memory:":
             conn.close()
-        return jsonify({"message": "Invalid credentials.", "success": False}), 401
-
-    stored_hash = row["password_hash"]
-    if not check_password_hash(stored_hash, password):
-        if DATABASE != ":memory:":
-            conn.close()
-        return jsonify({"message": "Invalid credentials.", "success": False}), 401
-
-    payload = {"college_id": row["college_id"], "role": row["role"], "name": row["name"]}
-    token = _generate_token(payload)
-
-    if DATABASE != ":memory:":
-        conn.close()
-
-    return jsonify({"token": token, "success": True, "role": row["role"], "name": row["name"]}), 200
 
 
 @app.route("/api/me", methods=["GET"])
@@ -329,13 +399,13 @@ def handle_me():
 @require_auth
 def create_booking():
     """Create a new lab booking request."""
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
-        return jsonify({"message": "Invalid JSON payload."}), 400
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
 
     required_fields = ["lab_name", "booking_date", "start_time", "end_time"]
     if not all(field in data for field in required_fields):
-        return jsonify({"message": "Missing required fields."}), 400
+        return jsonify({"message": "Missing required fields.", "success": False}), 400
 
     college_id = request.current_user.get("college_id")
     lab_name = data["lab_name"]
@@ -349,12 +419,32 @@ def create_booking():
         datetime.datetime.strptime(start_time, "%H:%M")
         datetime.datetime.strptime(end_time, "%H:%M")
     except ValueError:
-        return jsonify({"message": "Invalid date or time format."}), 400
+        return jsonify({"message": "Invalid date or time format.", "success": False}), 400
 
     conn = get_db_connection()
     try:
-        created_at = datetime.datetime.now(timezone.utc).isoformat()
         cursor = conn.cursor()
+
+        # Ensure bookings table exists
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bookings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                college_id TEXT NOT NULL,
+                lab_name TEXT NOT NULL,
+                booking_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                FOREIGN KEY (college_id) REFERENCES users(college_id)
+            );
+            """
+        )
+        conn.commit()
+
+        created_at = datetime.datetime.now(timezone.utc).isoformat()
         cursor.execute(
             """
             INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at)
@@ -370,8 +460,15 @@ def create_booking():
             "success": True
         }), 201
     except sqlite3.Error as e:
-        print(f"Database Error: {e}")
-        return jsonify({"message": "Failed to create booking."}), 500
+        print(f"Database Error in create_booking: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to create booking.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in create_booking: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
         if DATABASE != ":memory:":
             conn.close()
@@ -387,6 +484,13 @@ def get_bookings():
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+
+        # Ensure bookings table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+        if not cursor.fetchone():
+            # Table doesn't exist yet, return empty list
+            return jsonify({"bookings": [], "success": True}), 200
+
         if role == "admin":
             # Admin can see all bookings
             cursor.execute(
@@ -424,13 +528,20 @@ def get_bookings():
                 "end_time": row["end_time"],
                 "status": row["status"],
                 "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
+                "updated_at": row["updated_at"] if row["updated_at"] else None,
             })
 
         return jsonify({"bookings": bookings, "success": True}), 200
     except sqlite3.Error as e:
-        print(f"Database Error: {e}")
-        return jsonify({"message": "Failed to retrieve bookings."}), 500
+        print(f"Database Error in get_bookings: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to retrieve bookings.", "success": False, "error": str(e)}), 500
+    except Exception as e:
+        print(f"Unexpected error in get_bookings: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False, "error": str(e)}), 500
     finally:
         if DATABASE != ":memory:":
             conn.close()
@@ -443,6 +554,13 @@ def get_pending_bookings():
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+
+        # Ensure bookings table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+        if not cursor.fetchone():
+            # Table doesn't exist yet, return empty list
+            return jsonify({"bookings": [], "success": True}), 200
+
         cursor.execute(
             """
             SELECT b.*, u.name, u.email
@@ -470,8 +588,15 @@ def get_pending_bookings():
 
         return jsonify({"bookings": bookings, "success": True}), 200
     except sqlite3.Error as e:
-        print(f"Database Error: {e}")
-        return jsonify({"message": "Failed to retrieve pending bookings."}), 500
+        print(f"Database Error in get_pending_bookings: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to retrieve pending bookings.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in get_pending_bookings: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
         if DATABASE != ":memory:":
             conn.close()
@@ -484,6 +609,12 @@ def approve_booking(booking_id):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+
+        # Check if bookings table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Bookings table does not exist.", "success": False}), 404
+
         # Check if booking exists and is pending
         cursor.execute(
             "SELECT college_id, lab_name, booking_date, start_time, end_time "
@@ -492,7 +623,7 @@ def approve_booking(booking_id):
         )
         booking = cursor.fetchone()
         if not booking:
-            return jsonify({"message": "Booking not found or already processed."}), 404
+            return jsonify({"message": "Booking not found or already processed.", "success": False}), 404
 
         # Update booking status
         updated_at = datetime.datetime.now(timezone.utc).isoformat()
@@ -514,8 +645,15 @@ def approve_booking(booking_id):
             "success": True
         }), 200
     except sqlite3.Error as e:
-        print(f"Database Error: {e}")
-        return jsonify({"message": "Failed to approve booking."}), 500
+        print(f"Database Error in approve_booking: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to approve booking.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in approve_booking: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
         if DATABASE != ":memory:":
             conn.close()
@@ -528,6 +666,12 @@ def reject_booking(booking_id):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+
+        # Check if bookings table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Bookings table does not exist.", "success": False}), 404
+
         # Check if booking exists and is pending
         cursor.execute(
             "SELECT college_id, lab_name, booking_date, start_time, end_time "
@@ -536,7 +680,7 @@ def reject_booking(booking_id):
         )
         booking = cursor.fetchone()
         if not booking:
-            return jsonify({"message": "Booking not found or already processed."}), 404
+            return jsonify({"message": "Booking not found or already processed.", "success": False}), 404
 
         # Update booking status
         updated_at = datetime.datetime.now(timezone.utc).isoformat()
@@ -546,34 +690,395 @@ def reject_booking(booking_id):
         )
         conn.commit()
 
-        # Get user email for notification (for future email sending)
-        cursor.execute(
-            "SELECT email, name FROM users WHERE college_id = ?",
-            (booking["college_id"],)
-        )
-        # In production, use the user data to send email notification
-        # For now, we'll just return success
         return jsonify({
-            "message": "Booking rejected. User notified.",
+            "message": "Booking rejected successfully.",
             "success": True
         }), 200
     except sqlite3.Error as e:
-        print(f"Database Error: {e}")
-        return jsonify({"message": "Failed to reject booking."}), 500
+        print(f"Database Error in reject_booking: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to reject booking.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in reject_booking: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+# --- Lab Management Functions ---
+
+
+def validate_lab_data(data):
+    """
+    Validates lab data for creation/update.
+    Required fields: name, capacity, equipment.
+    """
+    errors = []
+
+    # Check for presence of required fields
+    # Note: For equipment, we check if it exists and is not None
+    # Empty list [] is falsy, but we want to allow it to pass this check
+    # so we can validate it properly in the equipment validation section
+    if "name" not in data or not data.get("name"):
+        errors.append("All fields (name, capacity, equipment) are required.")
+        return False, errors
+    if "capacity" not in data or data.get("capacity") is None:
+        errors.append("All fields (name, capacity, equipment) are required.")
+        return False, errors
+    if "equipment" not in data or data.get("equipment") is None:
+        errors.append("All fields (name, capacity, equipment) are required.")
+        return False, errors
+
+    # Validate name (non-empty string)
+    if not isinstance(data["name"], str) or len(data["name"].strip()) == 0:
+        errors.append("Lab name must be a non-empty string.")
+    elif len(data["name"].strip()) > 100:
+        errors.append("Lab name must be less than 100 characters.")
+
+    # Validate capacity (positive integer)
+    try:
+        capacity = int(data["capacity"])
+        if capacity <= 0:
+            errors.append("Capacity must be a positive integer.")
+        elif capacity > 1000:
+            errors.append("Capacity must be less than or equal to 1000.")
+    except (ValueError, TypeError):
+        errors.append("Capacity must be a valid positive integer.")
+
+    # Validate equipment (list or string that can be converted to list)
+    equipment = data["equipment"]
+    if isinstance(equipment, str):
+        # If it's a string, try to parse as JSON array
+        try:
+            equipment_list = json.loads(equipment)
+            if not isinstance(equipment_list, list):
+                errors.append("Equipment must be a list or JSON array.")
+            elif len(equipment_list) == 0:
+                errors.append("Equipment list cannot be empty.")
+        except (json.JSONDecodeError, ValueError):
+            # If not JSON, treat as comma-separated string
+            if len(equipment.strip()) == 0:
+                errors.append("Equipment list cannot be empty.")
+    elif isinstance(equipment, list):
+        if len(equipment) == 0:
+            errors.append("Equipment list cannot be empty.")
+    else:
+        errors.append("Equipment must be a list or JSON array string.")
+
+    return not errors, errors
+
+
+# --- Lab Management Endpoints ---
+
+
+@app.route("/api/labs", methods=["POST"])
+@require_role("admin")
+def create_lab():
+    """Create a new lab entry (admin only)."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
+
+    is_valid, errors = validate_lab_data(data)
+    if not is_valid:
+        return jsonify({"message": "Validation failed: " + ", ".join(errors), "success": False}), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Ensure labs table exists
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS labs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                capacity INTEGER NOT NULL,
+                equipment TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT
+            );
+            """
+        )
+        conn.commit()
+
+        # Parse equipment to JSON string if it's a list
+        equipment = data["equipment"]
+        if isinstance(equipment, list):
+            equipment = json.dumps(equipment)
+
+        created_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            INSERT INTO labs (name, capacity, equipment, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (data["name"].strip(), int(data["capacity"]), equipment, created_at),
+        )
+        conn.commit()
+        lab_id = cursor.lastrowid
+
+        # Get the created lab
+        cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
+        lab_row = cursor.fetchone()
+        lab_data = {
+            "id": lab_row["id"],
+            "name": lab_row["name"],
+            "capacity": lab_row["capacity"],
+            "equipment": lab_row["equipment"],
+            "created_at": lab_row["created_at"],
+            "updated_at": lab_row["updated_at"],
+        }
+
+        return jsonify({
+            "message": "Lab created successfully.",
+            "lab": lab_data,
+            "success": True
+        }), 201
+    except sqlite3.IntegrityError as e:
+        if "UNIQUE constraint failed: labs.name" in str(e):
+            return jsonify({"message": "A lab with this name already exists.", "success": False}), 400
+        print(f"Integrity Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to create lab.", "success": False}), 500
+    except sqlite3.Error as e:
+        print(f"Database Error in create_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to create lab.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in create_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/labs", methods=["GET"])
+@require_auth
+def get_labs():
+    """Get all labs (authenticated users)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if labs table exists, if not return empty list
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
+        if not cursor.fetchone():
+            # Table doesn't exist yet, return empty list
+            return jsonify({"labs": [], "success": True}), 200
+
+        cursor.execute("SELECT * FROM labs ORDER BY name ASC")
+        rows = cursor.fetchall()
+        labs = []
+        for row in rows:
+            labs.append({
+                "id": row["id"],
+                "name": row["name"],
+                "capacity": row["capacity"],
+                "equipment": row["equipment"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"] if row["updated_at"] else None,
+            })
+
+        return jsonify({"labs": labs, "success": True}), 200
+    except sqlite3.Error as e:
+        print(f"Database Error in get_labs: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to retrieve labs.", "error": str(e), "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in get_labs: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/labs/<int:lab_id>", methods=["GET"])
+@require_auth
+def get_lab(lab_id):
+    """Get a specific lab by ID (authenticated users)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if labs table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Labs table does not exist.", "success": False}), 404
+
+        cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            return jsonify({"message": "Lab not found.", "success": False}), 404
+
+        lab_data = {
+            "id": row["id"],
+            "name": row["name"],
+            "capacity": row["capacity"],
+            "equipment": row["equipment"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"] if row["updated_at"] else None,
+        }
+
+        return jsonify({"lab": lab_data, "success": True}), 200
+    except sqlite3.Error as e:
+        print(f"Database Error in get_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to retrieve lab.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in get_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/labs/<int:lab_id>", methods=["PUT"])
+@require_role("admin")
+def update_lab(lab_id):
+    """Update a lab entry (admin only)."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
+
+    is_valid, errors = validate_lab_data(data)
+    if not is_valid:
+        return jsonify({"message": "Validation failed: " + ", ".join(errors), "success": False}), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        # Check if labs table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Labs table does not exist.", "success": False}), 404
+
+        # Check if lab exists
+        cursor.execute("SELECT id FROM labs WHERE id = ?", (lab_id,))
+        if not cursor.fetchone():
+            return jsonify({"message": "Lab not found.", "success": False}), 404
+
+        # Parse equipment to JSON string if it's a list
+        equipment = data["equipment"]
+        if isinstance(equipment, list):
+            equipment = json.dumps(equipment)
+
+        updated_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            UPDATE labs SET name = ?, capacity = ?, equipment = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (data["name"].strip(), int(data["capacity"]), equipment, updated_at, lab_id),
+        )
+        conn.commit()
+
+        # Get the updated lab
+        cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
+        lab_row = cursor.fetchone()
+        lab_data = {
+            "id": lab_row["id"],
+            "name": lab_row["name"],
+            "capacity": lab_row["capacity"],
+            "equipment": lab_row["equipment"],
+            "created_at": lab_row["created_at"],
+            "updated_at": lab_row["updated_at"],
+        }
+
+        return jsonify({
+            "message": "Lab updated successfully.",
+            "lab": lab_data,
+            "success": True
+        }), 200
+    except sqlite3.IntegrityError as e:
+        if "UNIQUE constraint failed: labs.name" in str(e):
+            return jsonify({"message": "A lab with this name already exists.", "success": False}), 400
+        print(f"Integrity Error in update_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to update lab.", "success": False}), 500
+    except sqlite3.Error as e:
+        print(f"Database Error in update_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to update lab.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in update_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/labs/<int:lab_id>", methods=["DELETE"])
+@require_role("admin")
+def delete_lab(lab_id):
+    """Delete a lab entry and its associated availability slots (admin only)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if labs table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Labs table does not exist.", "success": False}), 404
+
+        # Check if lab exists
+        cursor.execute("SELECT id, name FROM labs WHERE id = ?", (lab_id,))
+        lab = cursor.fetchone()
+        if not lab:
+            return jsonify({"message": "Lab not found.", "success": False}), 404
+
+        lab_name = lab["name"]
+
+        # Delete associated availability slots (CASCADE should handle this, but explicit is better)
+        cursor.execute("DELETE FROM availability_slots WHERE lab_id = ?", (lab_id,))
+
+        # Delete the lab
+        cursor.execute("DELETE FROM labs WHERE id = ?", (lab_id,))
+        conn.commit()
+
+        return jsonify({
+            "message": f"Lab '{lab_name}' deleted successfully along with its availability slots.",
+            "success": True
+        }), 200
+    except sqlite3.Error as e:
+        print(f"Database Error in delete_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to delete lab.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in delete_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
         if DATABASE != ":memory:":
             conn.close()
 
 
 # --- Application Runner ---
-if __name__ == "__main__":
-    # Initialize the database before running the app
-    # This checks if the file exists and runs the init_db function.
-    if not os.path.exists(DATABASE):
-        init_db()
+# Initialize database on startup
+init_db()
 
-    # The init_db function is also decorated to run once on first request
-    # but since this is a single file app, running it on startup is best.
+if __name__ == "__main__":
     # Use environment variable for debug mode (default: False for security)
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(debug=debug_mode, port=5000)

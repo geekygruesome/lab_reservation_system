@@ -48,7 +48,7 @@ jobs:
         env:
           FLASK_DEBUG: "False"
           SECRET_KEY: "test-secret-key"
-        # Coverage threshold >75% is enforced via pytest.ini
+        # Coverage threshold ≥75% is enforced via pytest.ini (--cov-fail-under=75)
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
