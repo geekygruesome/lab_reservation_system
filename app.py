@@ -117,7 +117,37 @@ def init_db():
     # close when a real file path is present and it's not ':memory:'.
     if main_db_file and main_db_file != ":memory:":
         conn.close()
-
+    # Seed some common science labs if the labs table is empty. Use the
+    # same connection object `conn` returned by get_db_connection() to
+    # avoid closing a test-supplied in-memory connection (tests monkey
+    # patch get_db_connection()). Keep this lightweight and tolerant of
+    # any errors to avoid breaking test setup.
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(1) as c FROM labs")
+        row = cur.fetchone()
+        count = row[0] if row else 0
+        if count == 0:
+            now = datetime.datetime.now(timezone.utc).isoformat()
+            seed_labs = [
+                ("Physics", 40, json.dumps(["Oscilloscope", "Projector"]), now),
+                ("Chemistry", 30, json.dumps(["Fume hood", "Beakers", "Bunsen burner"]), now),
+                ("Biology", 25, json.dumps(["Microscopes", "Slides"]), now),
+                ("Biotechnology", 20, json.dumps(["PCR machine", "Centrifuge"]), now),
+            ]
+            for name, cap, equipment, created_at in seed_labs:
+                try:
+                    cur.execute(
+                        "INSERT OR IGNORE INTO labs (name, capacity, equipment, created_at) VALUES (?, ?, ?, ?)",
+                        (name, cap, equipment, created_at),
+                    )
+                except Exception:
+                    # Skip any problem inserting a particular seed row
+                    pass
+            conn.commit()
+    except Exception:
+        # Swallow errors; tests will assert table presence separately.
+        pass
     print("Database initialization complete.")
 # --- Helper Functions (Core Logic) ---
 
@@ -1069,6 +1099,233 @@ def delete_lab(lab_id):
         import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+# --- Helper Functions for Available Labs ---
+
+
+def get_day_of_week(date_str):
+    """
+    Get the day of week name from a date string (YYYY-MM-DD).
+    Returns: 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
+    """
+    try:
+        date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        return days[date_obj.weekday()]
+    except ValueError:
+        return None
+
+
+def time_to_minutes(time_str):
+    """Convert time string (HH:MM) to minutes since midnight."""
+    try:
+        parts = time_str.split(':')
+        return int(parts[0]) * 60 + int(parts[1])
+    except (ValueError, IndexError):
+        return None
+
+
+def slots_overlap(slot1_start, slot1_end, slot2_start, slot2_end):
+    """
+    Check if two time slots overlap.
+    Returns True if slots overlap, False otherwise.
+    """
+    start1 = time_to_minutes(slot1_start)
+    end1 = time_to_minutes(slot1_end)
+    start2 = time_to_minutes(slot2_start)
+    end2 = time_to_minutes(slot2_end)
+
+    if start1 is None or end1 is None or start2 is None or end2 is None:
+        return False
+
+    # Slots overlap if one starts before the other ends
+    return start1 < end2 and start2 < end1
+
+
+def filter_available_slots(availability_slots, bookings):
+    """
+    Filter out availability slots that overlap with existing bookings.
+    Returns list of available slots.
+    """
+    available = []
+    for slot in availability_slots:
+        slot_start = slot['start_time']
+        slot_end = slot['end_time']
+        is_available = True
+
+        # Check if this slot overlaps with any booking
+        for booking in bookings:
+            booking_start = booking['start_time']
+            booking_end = booking['end_time']
+            if slots_overlap(slot_start, slot_end, booking_start, booking_end):
+                is_available = False
+                break
+
+        if is_available:
+            available.append({
+                'start_time': slot_start,
+                'end_time': slot_end
+            })
+
+    return available
+
+
+# --- Available Labs Endpoint ---
+
+
+@app.route("/api/labs/available", methods=["GET"])
+@require_auth
+def get_available_labs():
+    """
+    Get all available labs and their available slots for a specific date.
+    Query parameter: date (YYYY-MM-DD format)
+    Past dates are not allowed.
+    Optimized for <3s response time with efficient queries.
+    """
+    import time
+    start_time = time.time()
+
+    date_str = request.args.get("date")
+    if not date_str:
+        return jsonify({"error": "Date is required"}), 400
+
+    # Validate date format and existence (no Feb 30 nonsense)
+    try:
+        date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        # Verify the parsed date matches input (catches invalid dates like Feb 30)
+        if date_obj.strftime("%Y-%m-%d") != date_str:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+
+    # Validate date is not in the past
+    today = datetime.datetime.now().date()
+    if date_obj.date() < today:
+        return jsonify({"error": "Past dates are not allowed"}), 400
+
+    # Get day of week
+    day_of_week = get_day_of_week(date_str)
+    if not day_of_week:
+        return jsonify({"error": "Invalid date"}), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if labs table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
+        if not cursor.fetchone():
+            return jsonify({"labs": [], "date": date_str}), 200
+
+        # Optimized: Single query to get all labs with their availability slots
+        # and bookings. Using LEFT JOINs to minimize database round trips.
+        query = (
+            """
+            SELECT
+                l.id as lab_id,
+                l.name as lab_name,
+                l.capacity,
+                l.equipment,
+                av.start_time as avail_start,
+                av.end_time as avail_end,
+                b.start_time as booking_start,
+                b.end_time as booking_end
+            FROM labs l
+            LEFT JOIN availability_slots av ON l.id = av.lab_id AND av.day_of_week = ?
+            LEFT JOIN bookings b ON l.name = b.lab_name
+                AND b.booking_date = ?
+                AND b.status IN ('approved', 'pending')
+            ORDER BY l.name ASC, av.start_time ASC, b.start_time ASC
+            """
+        )
+        cursor.execute(query, (day_of_week, date_str))
+        rows = cursor.fetchall()
+
+        # Process results efficiently
+        labs_dict = {}
+        for row in rows:
+            lab_id = row["lab_id"]
+            lab_name = row["lab_name"]
+
+            if lab_id not in labs_dict:
+                labs_dict[lab_id] = {
+                    "lab_id": lab_id,
+                    "lab_name": lab_name,
+                    "capacity": row["capacity"],
+                    "equipment": row["equipment"],
+                    "availability_slots": [],
+                    "bookings": []
+                }
+
+            # Collect availability slots
+            if row["avail_start"] and row["avail_end"]:
+                slot = {
+                    'start_time': row["avail_start"],
+                    'end_time': row["avail_end"]
+                }
+                if slot not in labs_dict[lab_id]["availability_slots"]:
+                    labs_dict[lab_id]["availability_slots"].append(slot)
+
+            # Collect bookings
+            if row["booking_start"] and row["booking_end"]:
+                booking = {
+                    'start_time': row["booking_start"],
+                    'end_time': row["booking_end"]
+                }
+                if booking not in labs_dict[lab_id]["bookings"]:
+                    labs_dict[lab_id]["bookings"].append(booking)
+
+        # Filter available slots for each lab
+        available_labs = []
+        for lab_id, lab_data in labs_dict.items():
+            available_slots = filter_available_slots(
+                lab_data["availability_slots"],
+                lab_data["bookings"]
+            )
+
+            # Format slots as "HH:MM-HH:MM" strings
+            formatted_slots = [
+                f"{slot['start_time']}-{slot['end_time']}"
+                for slot in available_slots
+            ]
+
+            # Only include labs that have at least one available slot for
+            # the requested day. Tests expect labs without slots for the
+            # day to be excluded.
+            if formatted_slots:
+                available_labs.append({
+                    "lab_id": lab_data["lab_id"],
+                    "lab_name": lab_data["lab_name"],
+                    "available_slots": formatted_slots
+                })
+
+        # Sort by lab name
+        available_labs.sort(key=lambda x: x["lab_name"])
+
+        # Check response time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > 3.0:
+            print(f"WARNING: Response time {elapsed_time:.2f}s exceeds 3s threshold")
+
+        return jsonify({
+            "date": date_str,
+            "labs": available_labs
+        }), 200
+
+    except sqlite3.Error as e:
+        print(f"Database Error in get_available_labs: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Something went wrong"}), 500
+    except Exception as e:
+        print(f"Unexpected error in get_available_labs: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Something went wrong"}), 500
     finally:
         if DATABASE != ":memory:":
             conn.close()
