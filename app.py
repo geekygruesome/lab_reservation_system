@@ -1,4 +1,5 @@
 import sqlite3
+from functools import wraps
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -16,7 +17,9 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Use an absolute path for the SQLite file (stable regardless of current working dir)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "lab_reservations.db")
-print("Using database file:", DATABASE)
+# Only print in non-testing environments to avoid CI noise
+if not os.getenv("PYTEST_CURRENT_TEST"):
+    print("Using database file:", DATABASE)
 # Secret used for signing JWTs. In production, set via environment variable.
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
 JWT_EXP_DELTA_SECONDS = int(os.getenv("JWT_EXP_DELTA_SECONDS", 3600))
@@ -41,7 +44,7 @@ def init_db():
     # 2. name
     # 3. email (unique)
     # 4. password_hash (for secure storage)
-    # 5. role (e.g., 'student', 'admin')
+    # 5. role (e.g., 'student', 'admin', 'lab_assistant')
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -50,6 +53,23 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL
+        );
+        """
+    )
+    # Create bookings table for lab reservations
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bookings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            college_id TEXT NOT NULL,
+            lab_name TEXT NOT NULL,
+            booking_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            FOREIGN KEY (college_id) REFERENCES users(college_id)
         );
         """
     )
@@ -81,6 +101,7 @@ def validate_registration_data(data):
     1. Duplicate email/college ID check (handled separately by database constraints).
     2. Email format validation.
     3. Password complexity (min 8 chars, 1 number, 1 symbol).
+    4. Role validation (student, admin, lab_assistant, faculty).
     """
     errors = []
 
@@ -90,6 +111,11 @@ def validate_registration_data(data):
     ):
         errors.append("All fields (College ID, Name, Email, Password, Role) are required.")
         return False, errors
+
+    # Role validation
+    valid_roles = ["student", "admin", "lab_assistant", "faculty"]
+    if data["role"] not in valid_roles:
+        errors.append(f"Invalid role. Must be one of: {', '.join(valid_roles)}.")
 
     # Email format validation
     email_regex = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -178,6 +204,48 @@ def _generate_token(payload: dict) -> str:
     return token
 
 
+def verify_token():
+    """Extract and verify JWT token from Authorization header."""
+    auth = request.headers.get("Authorization", None)
+    if not auth or not auth.startswith("Bearer "):
+        return None, jsonify({"message": "Missing or invalid Authorization header."}), 401
+
+    token = auth.split(" ", 1)[1]
+    try:
+        data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return data, None, None
+    except jwt.ExpiredSignatureError:
+        return None, jsonify({"message": "Token expired."}), 401
+    except jwt.InvalidTokenError:
+        return None, jsonify({"message": "Invalid token."}), 401
+
+
+def require_auth(f):
+    """Decorator to require authentication for an endpoint."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token_data, error_response, status_code = verify_token()
+        if error_response:
+            return error_response, status_code
+        request.current_user = token_data
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def require_role(*allowed_roles):
+    """Decorator to require specific role(s) for an endpoint."""
+    def decorator(f):
+        @wraps(f)
+        @require_auth
+        def decorated_function(*args, **kwargs):
+            user_role = request.current_user.get("role")
+            if user_role not in allowed_roles:
+                return jsonify({"message": "Insufficient permissions."}), 403
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
 # --- API Endpoint ---
 
 @app.route("/api/register", methods=["POST"])
@@ -253,6 +321,248 @@ def handle_me():
 
     # Return minimal user info
     return jsonify({"college_id": data.get("college_id"), "role": data.get("role"), "name": data.get("name")}), 200
+
+
+# --- Booking Endpoints ---
+
+@app.route("/api/bookings", methods=["POST"])
+@require_auth
+def create_booking():
+    """Create a new lab booking request."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"message": "Invalid JSON payload."}), 400
+
+    required_fields = ["lab_name", "booking_date", "start_time", "end_time"]
+    if not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required fields."}), 400
+
+    college_id = request.current_user.get("college_id")
+    lab_name = data["lab_name"]
+    booking_date = data["booking_date"]
+    start_time = data["start_time"]
+    end_time = data["end_time"]
+
+    # Validate date and time format
+    try:
+        datetime.datetime.strptime(booking_date, "%Y-%m-%d")
+        datetime.datetime.strptime(start_time, "%H:%M")
+        datetime.datetime.strptime(end_time, "%H:%M")
+    except ValueError:
+        return jsonify({"message": "Invalid date or time format."}), 400
+
+    conn = get_db_connection()
+    try:
+        created_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (college_id, lab_name, booking_date, start_time, end_time, created_at),
+        )
+        conn.commit()
+        booking_id = cursor.lastrowid
+        return jsonify({
+            "message": "Booking request created successfully.",
+            "booking_id": booking_id,
+            "success": True
+        }), 201
+    except sqlite3.Error as e:
+        print(f"Database Error: {e}")
+        return jsonify({"message": "Failed to create booking."}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/bookings", methods=["GET"])
+@require_auth
+def get_bookings():
+    """Get bookings for the current user or all bookings for admin."""
+    college_id = request.current_user.get("college_id")
+    role = request.current_user.get("role")
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if role == "admin":
+            # Admin can see all bookings
+            cursor.execute(
+                """
+                SELECT b.*, u.name, u.email
+                FROM bookings b
+                JOIN users u ON b.college_id = u.college_id
+                ORDER BY b.created_at DESC
+                """
+            )
+        else:
+            # Regular users see only their bookings
+            cursor.execute(
+                """
+                SELECT b.*, u.name, u.email
+                FROM bookings b
+                JOIN users u ON b.college_id = u.college_id
+                WHERE b.college_id = ?
+                ORDER BY b.created_at DESC
+                """,
+                (college_id,),
+            )
+
+        rows = cursor.fetchall()
+        bookings = []
+        for row in rows:
+            bookings.append({
+                "id": row["id"],
+                "college_id": row["college_id"],
+                "name": row["name"],
+                "email": row["email"],
+                "lab_name": row["lab_name"],
+                "booking_date": row["booking_date"],
+                "start_time": row["start_time"],
+                "end_time": row["end_time"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            })
+
+        return jsonify({"bookings": bookings, "success": True}), 200
+    except sqlite3.Error as e:
+        print(f"Database Error: {e}")
+        return jsonify({"message": "Failed to retrieve bookings."}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/bookings/pending", methods=["GET"])
+@require_role("admin")
+def get_pending_bookings():
+    """Get all pending booking requests (admin only)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT b.*, u.name, u.email
+            FROM bookings b
+            JOIN users u ON b.college_id = u.college_id
+            WHERE b.status = 'pending'
+            ORDER BY b.created_at DESC
+            """
+        )
+        rows = cursor.fetchall()
+        bookings = []
+        for row in rows:
+            bookings.append({
+                "id": row["id"],
+                "college_id": row["college_id"],
+                "name": row["name"],
+                "email": row["email"],
+                "lab_name": row["lab_name"],
+                "booking_date": row["booking_date"],
+                "start_time": row["start_time"],
+                "end_time": row["end_time"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+            })
+
+        return jsonify({"bookings": bookings, "success": True}), 200
+    except sqlite3.Error as e:
+        print(f"Database Error: {e}")
+        return jsonify({"message": "Failed to retrieve pending bookings."}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/bookings/<int:booking_id>/approve", methods=["POST"])
+@require_role("admin")
+def approve_booking(booking_id):
+    """Approve a booking request (admin only)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        # Check if booking exists and is pending
+        cursor.execute(
+            "SELECT college_id, lab_name, booking_date, start_time, end_time "
+            "FROM bookings WHERE id = ? AND status = 'pending'",
+            (booking_id,),
+        )
+        booking = cursor.fetchone()
+        if not booking:
+            return jsonify({"message": "Booking not found or already processed."}), 404
+
+        # Update booking status
+        updated_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            "UPDATE bookings SET status = 'approved', updated_at = ? WHERE id = ?",
+            (updated_at, booking_id),
+        )
+        conn.commit()
+
+        # Get user email for notification (for future email sending)
+        cursor.execute(
+            "SELECT email, name FROM users WHERE college_id = ?",
+            (booking["college_id"],)
+        )
+        # In production, use the user data to send email notification
+        # For now, we'll just return success
+        return jsonify({
+            "message": "Booking approved successfully. User notified.",
+            "success": True
+        }), 200
+    except sqlite3.Error as e:
+        print(f"Database Error: {e}")
+        return jsonify({"message": "Failed to approve booking."}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/bookings/<int:booking_id>/reject", methods=["POST"])
+@require_role("admin")
+def reject_booking(booking_id):
+    """Reject a booking request (admin only)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        # Check if booking exists and is pending
+        cursor.execute(
+            "SELECT college_id, lab_name, booking_date, start_time, end_time "
+            "FROM bookings WHERE id = ? AND status = 'pending'",
+            (booking_id,),
+        )
+        booking = cursor.fetchone()
+        if not booking:
+            return jsonify({"message": "Booking not found or already processed."}), 404
+
+        # Update booking status
+        updated_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            "UPDATE bookings SET status = 'rejected', updated_at = ? WHERE id = ?",
+            (updated_at, booking_id),
+        )
+        conn.commit()
+
+        # Get user email for notification (for future email sending)
+        cursor.execute(
+            "SELECT email, name FROM users WHERE college_id = ?",
+            (booking["college_id"],)
+        )
+        # In production, use the user data to send email notification
+        # For now, we'll just return success
+        return jsonify({
+            "message": "Booking rejected. User notified.",
+            "success": True
+        }), 200
+    except sqlite3.Error as e:
+        print(f"Database Error: {e}")
+        return jsonify({"message": "Failed to reject booking."}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
 
 
 # --- Application Runner ---

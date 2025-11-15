@@ -121,6 +121,83 @@
             margin-bottom: 20px;
             border: 1px solid #fcc;
         }
+        .bookings-section {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+        .bookings-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .bookings-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .bookings-table th,
+        .bookings-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .bookings-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        .bookings-table tr:hover {
+            background: #f8f9fa;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status-approved {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-rejected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .btn-approve {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .btn-approve:hover {
+            background: #218838;
+        }
+        .btn-reject {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-reject:hover {
+            background: #c82333;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
     </style>
 </head>
 <body>
@@ -178,6 +255,22 @@
                 <p>View usage statistics and analytics</p>
             </div>
         </div>
+
+        <!-- Admin Booking Approval Section -->
+        <div class="bookings-section admin-only" id="adminBookingsSection" style="display: none;">
+            <h2>Pending Booking Requests</h2>
+            <div id="bookingsContainer">
+                <div class="empty-state">Loading pending bookings...</div>
+            </div>
+        </div>
+
+        <!-- User Bookings Section -->
+        <div class="bookings-section" id="userBookingsSection" style="display: none;">
+            <h2>My Bookings</h2>
+            <div id="userBookingsContainer">
+                <div class="empty-state">Loading your bookings...</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -201,11 +294,15 @@
                     document.querySelectorAll('.admin-only').forEach(card => {
                         card.classList.add('visible');
                     });
+                    document.getElementById('adminBookingsSection').style.display = 'block';
                     document.getElementById('welcomeMessage').textContent =
                         `Welcome, ${userData.name}! You have administrative access.`;
+                    loadPendingBookings();
                 } else {
+                    document.getElementById('userBookingsSection').style.display = 'block';
                     document.getElementById('welcomeMessage').textContent =
                         `Welcome, ${userData.name}! Select an option to continue.`;
+                    loadUserBookings();
                 }
 
                 // Verify token with backend
@@ -238,6 +335,152 @@
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = 'login.html';
+        }
+
+        // Load pending bookings for admin
+        async function loadPendingBookings() {
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch('http://localhost:5000/api/bookings/pending', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load bookings');
+                }
+
+                const data = await response.json();
+                const container = document.getElementById('bookingsContainer');
+
+                if (data.bookings && data.bookings.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>User</th><th>Email</th><th>Lab</th><th>Date</th><th>Time</th><th>Status</th><th>Actions</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.bookings.forEach(booking => {
+                        html += `<tr>
+                            <td>${booking.id}</td>
+                            <td>${booking.name}</td>
+                            <td>${booking.email}</td>
+                            <td>${booking.lab_name}</td>
+                            <td>${booking.booking_date}</td>
+                            <td>${booking.start_time} - ${booking.end_time}</td>
+                            <td><span class="status-badge status-${booking.status}">${booking.status}</span></td>
+                            <td>
+                                <button class="btn-approve" onclick="approveBooking(${booking.id})">Approve</button>
+                                <button class="btn-reject" onclick="rejectBooking(${booking.id})">Reject</button>
+                            </td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No pending bookings</div>';
+                }
+            } catch (error) {
+                console.error('Error loading pending bookings:', error);
+                document.getElementById('bookingsContainer').innerHTML =
+                    '<div class="empty-state">Error loading bookings</div>';
+            }
+        }
+
+        // Load user bookings
+        async function loadUserBookings() {
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch('http://localhost:5000/api/bookings', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load bookings');
+                }
+
+                const data = await response.json();
+                const container = document.getElementById('userBookingsContainer');
+
+                if (data.bookings && data.bookings.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>Lab</th><th>Date</th><th>Time</th><th>Status</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.bookings.forEach(booking => {
+                        html += `<tr>
+                            <td>${booking.id}</td>
+                            <td>${booking.lab_name}</td>
+                            <td>${booking.booking_date}</td>
+                            <td>${booking.start_time} - ${booking.end_time}</td>
+                            <td><span class="status-badge status-${booking.status}">${booking.status}</span></td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No bookings found</div>';
+                }
+            } catch (error) {
+                console.error('Error loading user bookings:', error);
+                document.getElementById('userBookingsContainer').innerHTML =
+                    '<div class="empty-state">Error loading bookings</div>';
+            }
+        }
+
+        // Approve booking
+        async function approveBooking(bookingId) {
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/approve`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (response.ok) {
+                    alert('Booking approved successfully!');
+                    loadPendingBookings();
+                } else {
+                    const data = await response.json();
+                    alert(data.message || 'Failed to approve booking');
+                }
+            } catch (error) {
+                console.error('Error approving booking:', error);
+                alert('Error approving booking');
+            }
+        }
+
+        // Reject booking
+        async function rejectBooking(bookingId) {
+            const token = localStorage.getItem('token');
+            if (!confirm('Are you sure you want to reject this booking?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/reject`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (response.ok) {
+                    alert('Booking rejected successfully!');
+                    loadPendingBookings();
+                } else {
+                    const data = await response.json();
+                    alert(data.message || 'Failed to reject booking');
+                }
+            } catch (error) {
+                console.error('Error rejecting booking:', error);
+                alert('Error rejecting booking');
+            }
         }
 
         // Initialize on page load
