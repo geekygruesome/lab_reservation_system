@@ -1147,27 +1147,22 @@
                     let html = '<div style="margin-bottom: 15px; padding: 10px; background: #e6f0ff; border-radius: 5px; color: #1e40af;">';
                     html += `<strong>Available Labs for ${data.date}</strong> (Response time: ${data.response_time_ms}ms)`;
                     
-                    // Show summary for admin
-                    if (userRole === 'admin' && data.summary) {
-                        html += ` | Total: ${data.summary.total_labs}, Active: ${data.summary.active}, Maintenance: ${data.summary.maintenance}, Disabled: ${data.summary.disabled}`;
+                    // Show summary for all roles
+                    if (data.summary) {
+                        html += ` | Total: ${data.summary.total_labs}, Active: ${data.summary.active}, No Lab Active: ${data.summary.no_lab_active || 0}, Disabled: ${data.summary.disabled}`;
                     }
                     html += '</div>';
 
-                    // Build table based on role
+                    // Build table with ALL columns for ALL roles (same structure as admin)
                     html += '<table class="bookings-table"><thead><tr>';
-                    html += '<th>Lab ID</th><th>Lab Name</th>';
-                    
-                    // Add role-specific columns
-                    if (userRole === 'faculty' || userRole === 'lab_assistant' || userRole === 'admin') {
-                        html += '<th>Occupancy</th>';
-                    }
-                    if (userRole === 'lab_assistant' || userRole === 'admin') {
-                        html += '<th>Status</th>';
-                    }
-                    if (userRole === 'admin') {
-                        html += '<th>Capacity</th>';
-                    }
+                    html += '<th>Lab ID</th>';
+                    html += '<th>Lab Name</th>';
+                    html += '<th>Occupancy</th>';
+                    html += '<th>Status</th>';
+                    html += '<th>Capacity</th>';
+                    html += '<th>Time Slots</th>';
                     html += '<th>Available Slots</th>';
+                    html += '<th>Students per Slot</th>';
                     if (userRole === 'admin') {
                         html += '<th>Slot Details</th>';
                     }
@@ -1191,32 +1186,52 @@
                         }
                         html += '</td>';
 
-                        // Occupancy column (Faculty, Lab Assistant, Admin)
-                        if (userRole === 'faculty' || userRole === 'lab_assistant' || userRole === 'admin') {
-                            if (lab.occupancy) {
-                                const occColor = lab.occupancy.free > 0 ? '#10b981' : '#ef4444';
-                                html += `<td style="color: ${occColor}; font-weight: 600;">${lab.occupancy.occupancy_label}</td>`;
-                            } else {
-                                html += '<td>-</td>';
-                            }
+                        // Occupancy column (all roles)
+                        if (lab.occupancy) {
+                            const occColor = lab.occupancy.free > 0 ? '#10b981' : '#ef4444';
+                            html += `<td style="color: ${occColor}; font-weight: 600;">${lab.occupancy.occupancy_label}</td>`;
+                        } else {
+                            html += '<td>-</td>';
                         }
 
-                        // Status column (Lab Assistant, Admin)
-                        if (userRole === 'lab_assistant' || userRole === 'admin') {
-                            if (lab.status && lab.status_badge) {
-                                html += `<td>${lab.status_badge} ${lab.status}</td>`;
-                            } else {
-                                html += '<td>-</td>';
-                            }
+                        // Status column (all roles)
+                        if (lab.status && lab.status_badge) {
+                            html += `<td>${lab.status_badge} ${lab.status}</td>`;
+                        } else {
+                            html += '<td>-</td>';
                         }
 
-                        // Capacity column (Admin only)
-                        if (userRole === 'admin') {
-                            html += `<td>${lab.capacity || '-'}</td>`;
-                        }
+                        // Capacity column (all roles)
+                        html += `<td>${lab.capacity || '-'}</td>`;
+
+                        // Time Slots column (for all users)
+                        const timeSlotsHtml = lab.time_slots && lab.time_slots.length > 0
+                            ? lab.time_slots.map(ts => 
+                                `<span style="display: inline-block; margin: 3px; padding: 5px 10px; background: #3b82f6; color: white; border-radius: 4px; font-size: 12px;">${ts}</span>`
+                              ).join('')
+                            : '<span style="color: #ef4444; font-weight: 600;">No time slots configured</span>';
+                        html += `<td>${timeSlotsHtml}</td>`;
 
                         // Available slots
                         html += `<td>${slotsHtml}</td>`;
+
+                        // Students per Slot (ENROLLMENT COUNTER - all roles)
+                        if (lab.students_per_slot && lab.students_per_slot.length > 0) {
+                            let studentsHtml = '<div style="font-size: 11px;">';
+                            lab.students_per_slot.forEach(slot => {
+                                const slotColor = slot.available > 0 ? '#10b981' : '#ef4444';
+                                studentsHtml += `<div style="margin: 4px 0; padding: 6px; background: #f3f4f6; border-left: 3px solid ${slotColor}; border-radius: 4px;">`;
+                                studentsHtml += `<strong>${slot.time || slot.start_time + '-' + slot.end_time}</strong>: `;
+                                studentsHtml += `<span style="color: ${slotColor}; font-weight: 600;">${slot.students_enrolled || 0} enrolled</span>`;
+                                studentsHtml += ` / ${slot.capacity || 0} capacity`;
+                                studentsHtml += ` (${slot.available || 0} available)`;
+                                studentsHtml += '</div>';
+                            });
+                            studentsHtml += '</div>';
+                            html += `<td>${studentsHtml}</td>`;
+                        } else {
+                            html += '<td>-</td>';
+                        }
 
                         // Slot-level details (Admin only)
                         if (userRole === 'admin' && lab.slot_level_occupancy) {

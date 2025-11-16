@@ -43,7 +43,9 @@ def client(monkeypatch):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             capacity INTEGER NOT NULL,
+            available_slots INTEGER NOT NULL DEFAULT 0,
             equipment TEXT NOT NULL,
+            equipment_status TEXT NOT NULL DEFAULT 'Not Available',
             created_at TEXT NOT NULL,
             updated_at TEXT
         );
@@ -4471,15 +4473,27 @@ def test_student_sees_only_labs_with_available_slots(client):
     )
     conn.commit()
 
-    # Student should only see Lab 1 (has available slots)
+    # Student should see both labs: Lab 1 (has available slots) and Lab 2 (fully booked but has configured slots)
+    # This ensures students can see labs exist even if they're fully booked
     r = client.get(f"/api/labs/available?date={next_monday}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     data = r.get_json()
-    assert len(data["labs"]) == 1
-    assert data["labs"][0]["lab_name"] == "Lab With Slots"
-    # Student should not see occupancy data
-    assert "occupancy" not in data["labs"][0]
-    assert "status" not in data["labs"][0]
+    assert len(data["labs"]) == 2, "Students should see labs with configured slots even if fully booked"
+    lab_names = [lab["lab_name"] for lab in data["labs"]]
+    assert "Lab With Slots" in lab_names
+    assert "Lab Fully Booked" in lab_names
+    # Find Lab 1 (with available slots)
+    lab1 = next(lab for lab in data["labs"] if lab["lab_name"] == "Lab With Slots")
+    # Student should see status, student counts per slot, occupancy, and capacity (all roles see same fields)
+    assert "status" in lab1
+    assert "status_badge" in lab1
+    assert "students_per_slot" in lab1
+    # Student should see occupancy data (all roles see same fields)
+    assert "occupancy" in lab1
+    assert "capacity" in lab1
+    # Lab 2 (fully booked) should also be visible with 0 free slots
+    lab2 = next(lab for lab in data["labs"] if lab["lab_name"] == "Lab Fully Booked")
+    assert lab2.get("occupancy", {}).get("free", 1) == 0, "Fully booked lab should show 0 free slots"
 
 
 def test_faculty_sees_occupancy_and_low_availability(client):
@@ -4588,9 +4602,12 @@ def test_faculty_sees_occupancy_and_low_availability(client):
     assert lab["occupancy"]["total_slots"] == 3
     assert lab["low_availability"] is True
     assert "availability_badge" in lab
-    # Faculty should not see status or capacity
-    assert "status" not in lab
-    assert "capacity" not in lab
+    # Faculty should see status, student counts per slot, and capacity (all roles see same fields)
+    assert "status" in lab
+    assert "status_badge" in lab
+    assert "students_per_slot" in lab
+    # Faculty should see capacity (all roles see same fields)
+    assert "capacity" in lab
 
 
 def test_lab_assistant_sees_all_labs_with_status(client):
@@ -4719,7 +4736,7 @@ def test_lab_assistant_sees_all_labs_with_status(client):
         assert "status_badge" in lab
         assert "capacity" in lab
         if lab["lab_name"] == "Lab Maintenance":
-            assert lab["status"] == "Maintenance"
+            assert lab["status"] == "No lab active"
             assert lab["status_badge"] == "🟡"
 
 
@@ -4989,3 +5006,631 @@ def test_unassign_lab_from_assistant_success(client):
     assert r.status_code == 200
     data = r.get_json()
     assert data["success"] is True
+
+
+# --- Tests for Dynamic Lab Availability Tracking Feature ---
+
+
+def test_get_labs_includes_available_slots(client):
+    """Test that GET /labs includes available_slots field."""
+    # Register and login as student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLST1",
+            "name": "Availability Student",
+            "email": "avlst1@pesu.edu",
+            "password": "Pass1!234",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "AVLST1", "password": "Pass1!234"})
+    token = login_resp.get_json()["token"]
+
+    # Register admin and create lab
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM1",
+            "name": "Availability Admin",
+            "email": "avladm1@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM1", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab with capacity 30
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Availability", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert create_resp.status_code == 201
+    lab_id = create_resp.get_json()["lab"]["id"]
+    assert create_resp.get_json()["lab"]["available_slots"] == 30  # Should equal capacity
+
+    # Get labs - should include available_slots
+    r = client.get("/api/labs", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert "labs" in data
+    assert len(data["labs"]) == 1
+    assert "available_slots" in data["labs"][0]
+    assert data["labs"][0]["available_slots"] == 30
+    assert "upcoming_reservations" in data["labs"][0]
+
+
+def test_admin_can_update_available_slots(client):
+    """Test that admin can update available_slots."""
+    # Register and login as admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM3",
+            "name": "Availability Admin 3",
+            "email": "avladm3@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM3", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab with capacity 30
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Availability 3", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Update available_slots to 20
+    r = client.put(
+        f"/api/labs/{lab_id}/availability",
+        json={"available_slots": 20},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["success"] is True
+    assert "lab" in data
+    assert data["lab"]["available_slots"] == 20
+    assert "Available slots updated" in data["message"]
+
+
+def test_approve_booking_decrements_available_slots(client):
+    """Test that approving a booking decrements available_slots by 1."""
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM9",
+            "name": "Availability Admin 9",
+            "email": "avladm9@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM9", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLST4",
+            "name": "Availability Student 4",
+            "email": "avlst4@pesu.edu",
+            "password": "Pass1!234",
+            "role": "student",
+        },
+    )
+    student_login = client.post("/api/login", json={"college_id": "AVLST4", "password": "Pass1!234"})
+    student_token = student_login.get_json()["token"]
+
+    # Create lab with capacity 30 (available_slots = 30)
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Availability 9", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+    lab_name = create_resp.get_json()["lab"]["name"]
+    assert create_resp.get_json()["lab"]["available_slots"] == 30
+
+    # Create a booking
+    import datetime
+    future_date = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    booking_resp = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": lab_name,
+            "booking_date": future_date,
+            "start_time": "09:00",
+            "end_time": "11:00",
+        },
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    booking_id = booking_resp.get_json()["booking_id"]
+
+    # Approve the booking
+    approve_resp = client.post(
+        f"/api/bookings/{booking_id}/approve",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert approve_resp.status_code == 200
+
+    # Check that available_slots decreased by 1
+    get_resp = client.get(f"/api/labs/{lab_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    assert get_resp.status_code == 200
+    assert get_resp.get_json()["lab"]["available_slots"] == 29
+
+
+def test_update_available_slots_validation_negative(client):
+    """Test that negative available_slots is rejected."""
+    # Register and login as admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM4",
+            "name": "Availability Admin 4",
+            "email": "avladm4@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM4", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Availability 4", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Try to update with negative value
+    r = client.put(
+        f"/api/labs/{lab_id}/availability",
+        json={"available_slots": -5},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 400
+    data = r.get_json()
+    assert data["success"] is False
+    assert "cannot be negative" in data["message"]
+
+
+def test_update_available_slots_validation_exceeds_capacity(client):
+    """Test that available_slots exceeding capacity is rejected."""
+    # Register and login as admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM5",
+            "name": "Availability Admin 5",
+            "email": "avladm5@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM5", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab with capacity 30
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Availability 5", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Try to update with value exceeding capacity
+    r = client.put(
+        f"/api/labs/{lab_id}/availability",
+        json={"available_slots": 35},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 400
+    data = r.get_json()
+    assert data["success"] is False
+    assert "cannot exceed capacity" in data["message"]
+
+
+def test_faculty_cannot_update_available_slots(client):
+    """Test that faculty cannot update available_slots (403 Forbidden)."""
+    # Register and login as faculty
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLFAC1",
+            "name": "Availability Faculty",
+            "email": "avlfac1@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    faculty_login = client.post("/api/login", json={"college_id": "AVLFAC1", "password": "FacultyPass1!"})
+    faculty_token = faculty_login.get_json()["token"]
+
+    # Register admin and create lab
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM6",
+            "name": "Availability Admin 6",
+            "email": "avladm6@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM6", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Availability 6", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Faculty cannot update available_slots
+    r = client.put(
+        f"/api/labs/{lab_id}/availability",
+        json={"available_slots": 20},
+        headers={"Authorization": f"Bearer {faculty_token}"},
+    )
+    assert r.status_code == 403
+    assert "Insufficient permissions" in r.get_json()["message"]
+
+
+def test_equipment_status_update_admin_only(client):
+    """Test that only admin can update equipment_status."""
+    # Register and login as admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM_EQ1",
+            "name": "Equipment Admin",
+            "email": "avladmeq1@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM_EQ1", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Equipment 1", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Admin can update equipment_status
+    r = client.put(
+        f"/api/labs/{lab_id}/equipment-status",
+        json={"equipment_status": "Available"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    assert r.get_json()["lab"]["equipment_status"] == "Available"
+
+    # Register faculty
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLFAC_EQ1",
+            "name": "Equipment Faculty",
+            "email": "avlfaceq1@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    faculty_login = client.post("/api/login", json={"college_id": "AVLFAC_EQ1", "password": "FacultyPass1!"})
+    faculty_token = faculty_login.get_json()["token"]
+
+    # Faculty cannot update equipment_status
+    r = client.put(
+        f"/api/labs/{lab_id}/equipment-status",
+        json={"equipment_status": "Not Available"},
+        headers={"Authorization": f"Bearer {faculty_token}"},
+    )
+    assert r.status_code == 403
+
+
+def test_equipment_status_validation(client):
+    """Test that equipment_status only accepts valid values."""
+    # Register and login as admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM_EQ2",
+            "name": "Equipment Admin 2",
+            "email": "avladmeq2@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM_EQ2", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Equipment 2", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Try invalid status
+    r = client.put(
+        f"/api/labs/{lab_id}/equipment-status",
+        json={"equipment_status": "InvalidStatus"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 400
+    assert "Invalid equipment_status" in r.get_json()["message"]
+
+
+def test_faculty_can_reserve_lab(client):
+    """Test that faculty can reserve a lab using POST /reserve-lab."""
+    # Register and login as faculty
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLFAC_RES1",
+            "name": "Reserve Faculty",
+            "email": "avlfacres1@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    faculty_login = client.post("/api/login", json={"college_id": "AVLFAC_RES1", "password": "FacultyPass1!"})
+    faculty_token = faculty_login.get_json()["token"]
+
+    # Register admin and create lab
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM_RES1",
+            "name": "Reserve Admin",
+            "email": "avladmres1@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM_RES1", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Reserve 1", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Faculty reserves lab
+    import datetime
+    future_date = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    reserve_resp = client.post(
+        "/api/reserve-lab",
+        json={
+            "lab_id": lab_id,
+            "date": future_date,
+            "start_time": "09:00",
+            "end_time": "11:00",
+            "reason": "Research work",
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"},
+    )
+    assert reserve_resp.status_code == 201
+    data = reserve_resp.get_json()
+    assert data["success"] is True
+    assert "booking_id" in data
+    assert data["status"] == "pending"
+
+
+def test_student_cannot_reserve_lab(client):
+    """Test that student cannot reserve a lab (403 Forbidden)."""
+    # Register and login as student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLST_RES1",
+            "name": "Reserve Student",
+            "email": "avlstres1@pesu.edu",
+            "password": "Pass1!234",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "AVLST_RES1", "password": "Pass1!234"})
+    token = login_resp.get_json()["token"]
+
+    # Register admin and create lab
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM_RES2",
+            "name": "Reserve Admin 2",
+            "email": "avladmres2@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM_RES2", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Reserve 2", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Student cannot reserve lab
+    import datetime
+    future_date = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    reserve_resp = client.post(
+        "/api/reserve-lab",
+        json={
+            "lab_id": lab_id,
+            "date": future_date,
+            "start_time": "09:00",
+            "end_time": "11:00",
+            "reason": "Study",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert reserve_resp.status_code == 403
+    assert "Insufficient permissions" in reserve_resp.get_json()["message"]
+
+
+def test_cancel_approved_booking_increments_available_slots(client):
+    """Test that cancelling an approved booking increments available_slots by 1."""
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM_CANCEL1",
+            "name": "Cancel Admin",
+            "email": "avladmcancel1@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM_CANCEL1", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register faculty
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLFAC_CANCEL1",
+            "name": "Cancel Faculty",
+            "email": "avlfaccancel1@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    faculty_login = client.post("/api/login", json={"college_id": "AVLFAC_CANCEL1", "password": "FacultyPass1!"})
+    faculty_token = faculty_login.get_json()["token"]
+
+    # Create lab with capacity 30
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Cancel 1", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+    lab_name = create_resp.get_json()["lab"]["name"]
+
+    # Create and approve a booking
+    import datetime
+    future_date = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    booking_resp = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": lab_name,
+            "booking_date": future_date,
+            "start_time": "09:00",
+            "end_time": "11:00",
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"},
+    )
+    booking_id = booking_resp.get_json()["booking_id"]
+
+    # Approve the booking
+    client.post(
+        f"/api/bookings/{booking_id}/approve",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    # Check available_slots decreased
+    get_resp = client.get(f"/api/labs/{lab_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    assert get_resp.get_json()["lab"]["available_slots"] == 29
+
+    # Cancel the booking
+    cancel_resp = client.put(
+        f"/api/reservations/{booking_id}/cancel",
+        headers={"Authorization": f"Bearer {faculty_token}"},
+    )
+    assert cancel_resp.status_code == 200
+
+    # Check that available_slots increased by 1
+    get_resp = client.get(f"/api/labs/{lab_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    assert get_resp.get_json()["lab"]["available_slots"] == 30
+
+
+def test_cancel_pending_booking_does_not_change_availability(client):
+    """Test that cancelling a pending booking does not change available_slots."""
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLADM_CANCEL2",
+            "name": "Cancel Admin 2",
+            "email": "avladmcancel2@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "AVLADM_CANCEL2", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register faculty
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "AVLFAC_CANCEL2",
+            "name": "Cancel Faculty 2",
+            "email": "avlfaccancel2@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    faculty_login = client.post("/api/login", json={"college_id": "AVLFAC_CANCEL2", "password": "FacultyPass1!"})
+    faculty_token = faculty_login.get_json()["token"]
+
+    # Create lab
+    create_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Cancel 2", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = create_resp.get_json()["lab"]["id"]
+    lab_name = create_resp.get_json()["lab"]["name"]
+    initial_slots = create_resp.get_json()["lab"]["available_slots"]
+
+    # Create a booking (status will be pending)
+    import datetime
+    future_date = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    booking_resp = client.post(
+        "/api/bookings",
+        json={
+            "lab_name": lab_name,
+            "booking_date": future_date,
+            "start_time": "09:00",
+            "end_time": "11:00",
+        },
+        headers={"Authorization": f"Bearer {faculty_token}"},
+    )
+    booking_id = booking_resp.get_json()["booking_id"]
+
+    # Cancel the pending booking
+    cancel_resp = client.put(
+        f"/api/reservations/{booking_id}/cancel",
+        headers={"Authorization": f"Bearer {faculty_token}"},
+    )
+    assert cancel_resp.status_code == 200
+
+    # Check that available_slots did not change
+    get_resp = client.get(f"/api/labs/{lab_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    assert get_resp.get_json()["lab"]["available_slots"] == initial_slots

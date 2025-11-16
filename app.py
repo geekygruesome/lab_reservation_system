@@ -81,12 +81,26 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             capacity INTEGER NOT NULL,
+            available_slots INTEGER NOT NULL DEFAULT 0,
             equipment TEXT NOT NULL,
+            equipment_status TEXT NOT NULL DEFAULT 'Not Available',
             created_at TEXT NOT NULL,
             updated_at TEXT
         );
         """
     )
+    # Add available_slots column to existing labs table if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE labs ADD COLUMN available_slots INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        # Column already exists, ignore
+        pass
+    # Add equipment_status column to existing labs table if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE labs ADD COLUMN equipment_status TEXT NOT NULL DEFAULT 'Not Available'")
+    except sqlite3.OperationalError:
+        # Column already exists, ignore
+        pass
     # Create availability_slots table for lab availability
     cursor.execute(
         """
@@ -366,7 +380,12 @@ def serve_dashboard():
 @app.route("/available_labs.html")
 def serve_available_labs():
     """Serve available_labs.html for students."""
-    return send_from_directory(BASE_DIR, "available_labs.html")
+    response = send_from_directory(BASE_DIR, "available_labs.html")
+    # Prevent caching to ensure users see latest version
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 @app.route("/admin_available_labs.html")
@@ -582,17 +601,19 @@ def admin_get_available_labs():
                     labs_dict[lab_id]["bookings"].append(booking)
 
                 # Check which availability slots this booking overlaps with
-                for time_key, slot_info in labs_dict[lab_id]["slots_by_time"].items():
-                    slot_start = slot_info["start_time"]
-                    slot_end = slot_info["end_time"]
-                    # Check if booking overlaps with this slot
-                    if booking_start < slot_end and booking_end > slot_start:
-                        # Booking overlaps with this slot
-                        labs_dict[lab_id]["slots_by_time"][time_key]["booked_count"] += 1
-                        if booking not in labs_dict[lab_id]["slots_by_time"][time_key]["bookings"]:
-                            labs_dict[lab_id]["slots_by_time"][time_key]["bookings"].append(
-                                booking
-                            )
+                # Only count APPROVED bookings for occupancy
+                if booking_status == 'approved':
+                    for time_key, slot_info in labs_dict[lab_id]["slots_by_time"].items():
+                        slot_start = slot_info["start_time"]
+                        slot_end = slot_info["end_time"]
+                        # Check if booking overlaps with this slot
+                        if booking_start < slot_end and booking_end > slot_start:
+                            # Booking overlaps with this slot
+                            labs_dict[lab_id]["slots_by_time"][time_key]["booked_count"] += 1
+                            if booking not in labs_dict[lab_id]["slots_by_time"][time_key]["bookings"]:
+                                labs_dict[lab_id]["slots_by_time"][time_key]["bookings"].append(
+                                    booking
+                                )
 
         # Disabled labs for this date
         try:
@@ -612,38 +633,95 @@ def admin_get_available_labs():
             # total possible booking-units = slots * capacity
             per_slot_capacity = lab_data.get("capacity", 1) or 1
             total_possible = total_slots * per_slot_capacity
-            # total_booked = sum of booked_count across slots
-            total_booked = (
-                sum(s["booked_count"] for s in lab_data["slots_by_time"].values())
-                if lab_data.get("slots_by_time")
-                else 0
-            )
+            # Check for approved bookings
+            approved_bookings_list = [
+                b for b in lab_data["bookings"]
+                if isinstance(b, dict) and b.get('status') == 'approved'
+            ]
+            has_approved_bookings = len(approved_bookings_list) > 0
+
+            # total_booked = sum of approved bookings only
+            if len(lab_data["slots_by_time"]) > 0:
+                total_booked = (
+                    sum(s["booked_count"] for s in lab_data["slots_by_time"].values())
+                    if lab_data.get("slots_by_time")
+                    else 0
+                )
+            else:
+                # If no slots configured but has approved bookings, count them
+                total_booked = len(approved_bookings_list)
             total_free = max(0, total_possible - total_booked)
 
             # Determine lab status
             if lab_id in disabled:
                 status = "Disabled"
                 status_badge = "🔴"
+            elif has_approved_bookings:
+                # If lab has approved bookings, it's Active (even if no slots configured)
+                status = "Active"
+                status_badge = "🟢"
+            elif total_slots == 0:
+                status = "No lab active"
+                status_badge = "🟡"
             else:
                 status = "Active"
                 status_badge = "🟢"
 
             # Format slots with occupancy labels (per-slot capacity)
+            # Only count APPROVED bookings for occupancy
             formatted_slots = []
-            for time_key, slot_info in lab_data["slots_by_time"].items():
-                booked = slot_info["booked_count"]
-                capacity = per_slot_capacity
-                available = capacity - booked
-                occupancy_label = "FULL" if available <= 0 else f"{max(0, available)}/{capacity} free"
-                formatted_slots.append({
-                    "time": time_key,
-                    "start_time": slot_info["start_time"],
-                    "end_time": slot_info["end_time"],
-                    "booked_count": booked,
-                    "available": max(0, available),
-                    "occupancy_label": occupancy_label,
-                    "bookings": slot_info["bookings"]
-                })
+            # If lab has approved bookings but no slots configured, create slots from approved bookings
+            if len(approved_bookings_list) > 0 and total_slots == 0:
+                for booking in approved_bookings_list:
+                    slot_start = booking['start_time']
+                    slot_end = booking['end_time']
+                    capacity = per_slot_capacity
+                    formatted_slots.append({
+                        "time": f"{slot_start}-{slot_end}",
+                        "start_time": slot_start,
+                        "end_time": slot_end,
+                        "booked_count": 1,
+                        "available": 0,
+                        "occupancy_label": "FULL",
+                        "bookings": [booking]
+                    })
+            else:
+                # Normal case: use availability slots, but only count approved bookings
+                for time_key, slot_info in lab_data["slots_by_time"].items():
+                    # Count only approved bookings for this slot
+                    slot_approved_bookings = [
+                        b for b in approved_bookings_list
+                        if slots_overlap(
+                            slot_info["start_time"], slot_info["end_time"],
+                            b['start_time'], b['end_time']
+                        )
+                    ]
+                    booked = len(slot_approved_bookings)
+                    capacity = per_slot_capacity
+                    available = capacity - booked
+                    occupancy_label = "FULL" if available <= 0 else f"{max(0, available)}/{capacity} free"
+                    formatted_slots.append({
+                        "time": time_key,
+                        "start_time": slot_info["start_time"],
+                        "end_time": slot_info["end_time"],
+                        "booked_count": booked,
+                        "available": max(0, available),
+                        "occupancy_label": occupancy_label,
+                        "bookings": slot_approved_bookings
+                    })
+
+            # Get time slots - from availability slots or from approved bookings if no slots
+            time_slots_list = []
+            if lab_data["availability_slots"]:
+                time_slots_list = [
+                    f"{slot['start_time']}-{slot['end_time']}"
+                    for slot in lab_data["availability_slots"]
+                ]
+            elif has_approved_bookings and approved_bookings_list:
+                time_slots_list = [
+                    f"{b['start_time']}-{b['end_time']}"
+                    for b in approved_bookings_list
+                ]
 
             labs.append({
                 "lab_id": lab_id,
@@ -652,6 +730,7 @@ def admin_get_available_labs():
                 "equipment": lab_data["equipment"],
                 "status": status,
                 "status_badge": status_badge,
+                "time_slots": time_slots_list,
                 "occupancy": {
                     "total_slots": total_slots,
                     "booked": total_booked,
@@ -1159,6 +1238,32 @@ def approve_booking(booking_id):
             "UPDATE bookings SET status = 'approved', updated_at = ? WHERE id = ?",
             (updated_at, booking_id),
         )
+
+        # Decrement available_slots for the lab when booking is approved
+        lab_name = booking["lab_name"]
+        # Get current available_slots and capacity
+        cursor.execute("SELECT available_slots, capacity FROM labs WHERE name = ?", (lab_name,))
+        lab_row = cursor.fetchone()
+        if lab_row:
+            try:
+                if "available_slots" in lab_row.keys():
+                    current_slots = lab_row["available_slots"] if lab_row["available_slots"] is not None else 0
+                else:
+                    # If available_slots column doesn't exist, use capacity as default
+                    current_slots = lab_row["capacity"] if "capacity" in lab_row.keys() else 0
+            except (KeyError, AttributeError):
+                current_slots = lab_row["capacity"] if "capacity" in lab_row.keys() else 0
+            new_slots = max(0, current_slots - 1)  # Ensure it doesn't go below 0
+            # Ensure available_slots column exists before updating
+            try:
+                cursor.execute("ALTER TABLE labs ADD COLUMN available_slots INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            cursor.execute(
+                "UPDATE labs SET available_slots = ?, updated_at = ? WHERE name = ?",
+                (new_slots, updated_at, lab_name)
+            )
+
         conn.commit()
 
         # Get user email for notification (for future email sending)
@@ -1326,12 +1431,26 @@ def create_lab():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
                 capacity INTEGER NOT NULL,
+                available_slots INTEGER NOT NULL DEFAULT 0,
                 equipment TEXT NOT NULL,
+                equipment_status TEXT NOT NULL DEFAULT 'Not Available',
                 created_at TEXT NOT NULL,
                 updated_at TEXT
             );
             """
         )
+        # Add available_slots column to existing labs table if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE labs ADD COLUMN available_slots INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            # Column already exists, ignore
+            pass
+        # Add equipment_status column to existing labs table if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE labs ADD COLUMN equipment_status TEXT NOT NULL DEFAULT 'Not Available'")
+        except sqlite3.OperationalError:
+            # Column already exists, ignore
+            pass
         conn.commit()
 
         # Parse equipment to JSON string if it's a list
@@ -1339,13 +1458,17 @@ def create_lab():
         if isinstance(equipment, list):
             equipment = json.dumps(equipment)
 
+        # Set available_slots to capacity by default for new labs
+        capacity = int(data["capacity"])
+        available_slots = capacity  # New labs start with all slots available
+
         created_at = datetime.datetime.now(timezone.utc).isoformat()
         cursor.execute(
             """
-            INSERT INTO labs (name, capacity, equipment, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO labs (name, capacity, available_slots, equipment, equipment_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (data["name"].strip(), int(data["capacity"]), equipment, created_at),
+            (data["name"].strip(), capacity, available_slots, equipment, "Not Available", created_at),
         )
         conn.commit()
         lab_id = cursor.lastrowid
@@ -1353,11 +1476,25 @@ def create_lab():
         # Get the created lab
         cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
         lab_row = cursor.fetchone()
+        # Safely get equipment_status and available_slots
+        equipment_status = "Not Available"
+        retrieved_available_slots = available_slots
+        try:
+            if "equipment_status" in lab_row.keys():
+                equipment_status = lab_row["equipment_status"] if lab_row["equipment_status"] else "Not Available"
+            if "available_slots" in lab_row.keys():
+                retrieved_available_slots = (
+                    lab_row["available_slots"] if lab_row["available_slots"] is not None else capacity
+                )
+        except (KeyError, AttributeError):
+            pass
         lab_data = {
             "id": lab_row["id"],
             "name": lab_row["name"],
             "capacity": lab_row["capacity"],
+            "available_slots": retrieved_available_slots,
             "equipment": lab_row["equipment"],
+            "equipment_status": equipment_status,
             "created_at": lab_row["created_at"],
             "updated_at": lab_row["updated_at"],
         }
@@ -1407,11 +1544,52 @@ def get_labs():
         rows = cursor.fetchall()
         labs = []
         for row in rows:
+            # Safely get equipment_status and available_slots
+            equipment_status = "Not Available"
+            capacity_val = row["capacity"] if "capacity" in row.keys() else 0
+            available_slots = capacity_val  # Default to capacity if not set
+            try:
+                if "equipment_status" in row.keys():
+                    equipment_status = row["equipment_status"] if row["equipment_status"] else "Not Available"
+                if "available_slots" in row.keys():
+                    available_slots = row["available_slots"] if row["available_slots"] is not None else capacity_val
+            except (KeyError, AttributeError):
+                pass
+
+            # Get upcoming reservations for this lab
+            upcoming_reservations = []
+            try:
+                cursor.execute(
+                    """
+                    SELECT id, college_id, booking_date, start_time, end_time, status
+                    FROM bookings
+                    WHERE lab_name = ? AND booking_date >= date('now')
+                    ORDER BY booking_date ASC, start_time ASC
+                    LIMIT 10
+                    """,
+                    (row["name"],)
+                )
+                reservation_rows = cursor.fetchall()
+                for res_row in reservation_rows:
+                    upcoming_reservations.append({
+                        "id": res_row["id"],
+                        "college_id": res_row["college_id"],
+                        "reservation_date": res_row["booking_date"],
+                        "start_time": res_row["start_time"],
+                        "end_time": res_row["end_time"],
+                        "status": res_row["status"]
+                    })
+            except Exception:
+                pass  # If bookings table doesn't exist, skip
+
             labs.append({
                 "id": row["id"],
                 "name": row["name"],
                 "capacity": row["capacity"],
+                "available_slots": available_slots,
                 "equipment": row["equipment"],
+                "equipment_status": equipment_status,
+                "upcoming_reservations": upcoming_reservations,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"] if row["updated_at"] else None,
             })
@@ -1451,11 +1629,52 @@ def get_lab(lab_id):
         if not row:
             return jsonify({"message": "Lab not found.", "success": False}), 404
 
+        # Safely get equipment_status and available_slots
+        equipment_status = "Not Available"
+        capacity_val = row["capacity"] if "capacity" in row.keys() else 0
+        available_slots = capacity_val
+        try:
+            if "equipment_status" in row.keys():
+                equipment_status = row["equipment_status"] if row["equipment_status"] else "Not Available"
+            if "available_slots" in row.keys():
+                available_slots = row["available_slots"] if row["available_slots"] is not None else capacity_val
+        except (KeyError, AttributeError):
+            pass
+
+        # Get upcoming reservations for this lab
+        upcoming_reservations = []
+        try:
+            cursor.execute(
+                """
+                SELECT id, college_id, booking_date, start_time, end_time, status
+                FROM bookings
+                WHERE lab_name = ? AND booking_date >= date('now')
+                ORDER BY booking_date ASC, start_time ASC
+                LIMIT 10
+                """,
+                (row["name"],)
+            )
+            reservation_rows = cursor.fetchall()
+            for res_row in reservation_rows:
+                upcoming_reservations.append({
+                    "id": res_row["id"],
+                    "college_id": res_row["college_id"],
+                    "reservation_date": res_row["booking_date"],
+                    "start_time": res_row["start_time"],
+                    "end_time": res_row["end_time"],
+                    "status": res_row["status"]
+                })
+        except Exception:
+            pass  # If bookings table doesn't exist, skip
+
         lab_data = {
             "id": row["id"],
             "name": row["name"],
             "capacity": row["capacity"],
+            "available_slots": available_slots,
             "equipment": row["equipment"],
+            "equipment_status": equipment_status,
+            "upcoming_reservations": upcoming_reservations,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"] if row["updated_at"] else None,
         }
@@ -1756,7 +1975,8 @@ def get_available_labs():
                 av.end_time as avail_end,
                 b.start_time as booking_start,
                 b.end_time as booking_end,
-                b.id as booking_id
+                b.id as booking_id,
+                b.status as booking_status
             FROM labs l
             LEFT JOIN availability_slots av ON l.id = av.lab_id AND av.day_of_week = ?
             LEFT JOIN bookings b ON l.name = b.lab_name
@@ -1795,26 +2015,52 @@ def get_available_labs():
                 if slot not in labs_dict[lab_id]["availability_slots"]:
                     labs_dict[lab_id]["availability_slots"].append(slot)
 
-            # Collect bookings
-            if row["booking_start"] and row["booking_end"]:
+            # Collect bookings (both approved and pending) - include status
+            if row["booking_start"] and row["booking_end"] and row["booking_id"]:
+                try:
+                    booking_status = (
+                        row["booking_status"]
+                        if "booking_status" in row.keys() and row["booking_status"]
+                        else "pending"
+                    )
+                except (KeyError, AttributeError):
+                    booking_status = "pending"
                 booking = {
                     'start_time': row["booking_start"],
                     'end_time': row["booking_end"],
-                    'id': row["booking_id"]
+                    'id': row["booking_id"],
+                    'status': booking_status
                 }
-                # Avoid duplicates
+                # Avoid duplicates by booking ID
                 if not any(
-                    b['start_time'] == booking['start_time'] and
-                    b['end_time'] == booking['end_time']
+                    b.get('id') == booking['id']
                     for b in labs_dict[lab_id]["bookings"]
                 ):
                     labs_dict[lab_id]["bookings"].append(booking)
+
+        # Get approved bookings separately to determine Active status
+        approved_bookings_dict = {}
+        try:
+            cursor.execute(
+                """
+                SELECT lab_name, COUNT(*) as approved_count
+                FROM bookings
+                WHERE booking_date = ? AND status = 'approved'
+                GROUP BY lab_name
+                """,
+                (date_str,)
+            )
+            approved_rows = cursor.fetchall()
+            for row in approved_rows:
+                approved_bookings_dict[row["lab_name"]] = row["approved_count"]
+        except Exception:
+            pass  # Table might not exist
 
         # Process labs based on role
         available_labs = []
         total_labs_in_system = len(labs_dict)
         active_labs = 0
-        maintenance_labs = 0
+        no_lab_active_count = 0
         disabled_labs_count = len(disabled_lab_ids)
 
         for lab_id, lab_data in labs_dict.items():
@@ -1827,59 +2073,117 @@ def get_available_labs():
             # Calculate occupancy metrics (per-slot capacity)
             total_slots = len(lab_data["availability_slots"])
             per_slot_capacity = lab_data.get("capacity", 1) or 1
-            # For lab-level booked count, sum bookings overlapping each slot
+            # For lab-level booked count, sum ONLY approved bookings overlapping each slot
             total_booked_units = 0
-            for slot in lab_data["availability_slots"]:
-                slot_bookings = [
-                    b for b in lab_data["bookings"]
-                    if slots_overlap(slot['start_time'], slot['end_time'], b['start_time'], b['end_time'])
-                ]
-                total_booked_units += len(slot_bookings)
+            approved_bookings_for_counting = [
+                b for b in lab_data["bookings"]
+                if isinstance(b, dict) and b.get('status') == 'approved'
+            ]
+            if len(lab_data["availability_slots"]) > 0:
+                for slot in lab_data["availability_slots"]:
+                    slot_bookings = [
+                        b for b in approved_bookings_for_counting
+                        if slots_overlap(slot['start_time'], slot['end_time'], b['start_time'], b['end_time'])
+                    ]
+                    total_booked_units += len(slot_bookings)
+            else:
+                # If no slots configured but has approved bookings, count them
+                total_booked_units = len(approved_bookings_for_counting)
 
             total_possible = total_slots * per_slot_capacity
             free_units = max(0, total_possible - total_booked_units)
-            # free_slots (used for role-based filtering) stays as number of slots with available capacity
-            free_slots = len(available_slots)
 
-            # Determine lab status (Active/Maintenance/Disabled)
+            # Determine lab status (Active/No lab active/Disabled)
+            # Lab is Active if it has approved bookings OR has slots available
+            has_approved_bookings = approved_bookings_dict.get(lab_data["lab_name"], 0) > 0
+            # Also check if any booking in the list is approved
+            has_approved_in_list = any(
+                (isinstance(b, dict) and b.get('status') == 'approved')
+                for b in lab_data["bookings"]
+            )
+
+            # Check if lab has approved bookings - this takes priority
+            has_any_approved = has_approved_bookings or has_approved_in_list
+
             if lab_data["disabled"]:
                 status = "Disabled"
                 status_badge = "🔴"
-            elif total_slots == 0:
-                status = "Maintenance"
-                status_badge = "🟡"
-                maintenance_labs += 1
-            else:
+            elif has_any_approved:
+                # If lab has approved bookings, it's Active (even if no slots configured)
                 status = "Active"
                 status_badge = "🟢"
                 active_labs += 1
+            elif total_slots == 0:
+                status = "No lab active"
+                status_badge = "🟡"
+                no_lab_active_count += 1
+            elif total_slots > 0:
+                status = "Active"
+                status_badge = "🟢"
+                active_labs += 1
+            else:
+                status = "No lab active"
+                status_badge = "🟡"
+                no_lab_active_count += 1
 
             # Provide per-slot availability details for students so they can see
             # how many units are available in each time slot (without exposing
             # admin-only lab-level data).
+            # Only count APPROVED bookings for availability calculation
+            approved_bookings_only = [
+                b for b in lab_data["bookings"]
+                if isinstance(b, dict) and b.get('status') == 'approved'
+            ]
+
             slot_availability = []
-            for slot in available_slots:
-                slot_start = slot['start_time']
-                slot_end = slot['end_time']
-                slot_capacity = slot.get('capacity', lab_data.get('capacity', 1) or 1)
-                slot_bookings = [
-                    b for b in lab_data['bookings']
-                    if slots_overlap(slot_start, slot_end, b['start_time'], b['end_time'])
-                ]
-                slot_booked_count = len(slot_bookings)
-                slot_available_units = max(0, slot_capacity - slot_booked_count)
-                slot_availability.append({
-                    'time': f"{slot_start}-{slot_end}",
-                    'start_time': slot_start,
-                    'end_time': slot_end,
-                    'capacity': slot_capacity,
-                    'booked_count': slot_booked_count,
-                    'available': slot_available_units,
-                    'occupancy_label': (
-                        "FULL" if slot_available_units <= 0
-                        else f"{slot_available_units}/{slot_capacity} free"
-                    )
-                })
+            # If lab has approved bookings but no slots configured, create slots from approved bookings
+            if len(approved_bookings_only) > 0 and total_slots == 0:
+                # Create time slots from approved bookings
+                for booking in approved_bookings_only:
+                    slot_start = booking['start_time']
+                    slot_end = booking['end_time']
+                    slot_capacity = lab_data.get('capacity', 1) or 1
+                    # This slot is fully booked (1 booking, 0 available)
+                    slot_availability.append({
+                        'time': f"{slot_start}-{slot_end}",
+                        'start_time': slot_start,
+                        'end_time': slot_end,
+                        'capacity': slot_capacity,
+                        'booked_count': 1,  # Number of students enrolled/booked in this time slot
+                        'students_enrolled': 1,  # Explicit count of students enrolled
+                        'available': 0,
+                        'occupancy_label': "FULL"
+                    })
+            else:
+                # Normal case: use filtered available slots
+                # (excludes slots with pending/approved bookings that fill capacity)
+                for slot in available_slots:
+                    slot_start = slot['start_time']
+                    slot_end = slot['end_time']
+                    slot_capacity = slot.get('capacity', lab_data.get('capacity', 1) or 1)
+                    slot_bookings = [
+                        b for b in approved_bookings_only
+                        if slots_overlap(slot_start, slot_end, b['start_time'], b['end_time'])
+                    ]
+                    slot_booked_count = len(slot_bookings)
+                    slot_available_units = max(0, slot_capacity - slot_booked_count)
+                    slot_availability.append({
+                        'time': f"{slot_start}-{slot_end}",
+                        'start_time': slot_start,
+                        'end_time': slot_end,
+                        'capacity': slot_capacity,
+                        'booked_count': slot_booked_count,  # Number of students enrolled/booked in this time slot
+                        'students_enrolled': slot_booked_count,  # Explicit count of students enrolled
+                        'available': slot_available_units,
+                        'occupancy_label': (
+                            "FULL" if slot_available_units <= 0
+                            else f"{slot_available_units}/{slot_capacity} free"
+                        )
+                    })
+
+            # Calculate free_slots AFTER slot_availability is created
+            # Count slots that have at least 1 free unit
+            free_slots = sum(1 for slot in slot_availability if slot.get('available', 0) > 0)
 
             # Build student-friendly available_slots with occupancy shown
             # e.g., "09:00-11:00 (1/4 booked, 3 free)"
@@ -1892,6 +2196,16 @@ def get_available_labs():
                 )
                 student_available_slots.append(f"{slot_str} {occupancy_info}")
 
+            # If lab has approved bookings but no configured slots, ensure the booked time slot is shown
+            if len(approved_bookings_only) > 0 and total_slots == 0:
+                # Add time slots from approved bookings to available_slots display if not already there
+                for booking in approved_bookings_only:
+                    slot_str = f"{booking['start_time']}-{booking['end_time']}"
+                    # Check if this slot is already in student_available_slots
+                    if not any(slot_str in s for s in student_available_slots):
+                        slot_capacity = lab_data.get('capacity', 1) or 1
+                        student_available_slots.append(f"{slot_str} (1/{slot_capacity} booked, 0 free)")
+
             # Role-based filtering and data inclusion
             lab_response = {
                 "lab_id": lab_data["lab_id"],
@@ -1902,14 +2216,62 @@ def get_available_labs():
             # Keep detailed `slot_availability` for student UI to render per-slot availability.
             lab_response['slot_availability'] = slot_availability
 
-            # STUDENT: Only labs with available slots, no additional data, exclude disabled labs
+            # Include time slots information for all users
+            # If lab has approved bookings but no slots configured, show time slots from bookings
+            if lab_data["availability_slots"]:
+                lab_response["time_slots"] = [
+                    f"{slot['start_time']}-{slot['end_time']}"
+                    for slot in lab_data["availability_slots"]
+                ]
+            elif has_any_approved and approved_bookings_only:
+                # If lab has approved bookings but no slots, show time slots from approved bookings
+                lab_response["time_slots"] = [
+                    f"{b['start_time']}-{b['end_time']}"
+                    for b in approved_bookings_only
+                ]
+            else:
+                lab_response["time_slots"] = []
+
+            # Include status and status_badge for ALL roles (student, faculty, lab_assistant, admin)
+            lab_response["status"] = status
+            lab_response["status_badge"] = status_badge
+
+            # STUDENT: Show labs with available slots OR labs with configured slots (even if fully booked)
+            # This ensures students can see labs exist, even if they're fully booked
             if user_role == "student":
-                if free_slots > 0 and not lab_data["disabled"]:  # Only show labs with available slots, exclude disabled
+                # Show if: (has free slots) OR (has slots configured for this day)
+                should_show = (free_slots > 0) or (total_slots > 0)
+                if should_show and not lab_data["disabled"]:
+                    # Add occupancy info for students (same as other roles)
+                    lab_response["occupancy"] = {
+                        "total_slots": total_slots if total_slots > 0 else 0,
+                        "booked": total_booked_units,
+                        "free": free_units,
+                        "occupancy_label": (
+                            f"{free_units}/{total_possible} free" if total_possible > 0 else "0/0 free"
+                        )
+                    }
+                    # Add capacity for students
+                    lab_response["capacity"] = lab_data["capacity"]
+                    # Add summary of students enrolled per time slot for students
+                    lab_response["students_per_slot"] = [
+                        {
+                            "time": slot['time'],
+                            "start_time": slot['start_time'],
+                            "end_time": slot['end_time'],
+                            "students_enrolled": slot.get('students_enrolled', slot.get('booked_count', 0)),
+                            "capacity": slot['capacity'],
+                            "available": slot['available']
+                        }
+                        for slot in slot_availability
+                    ]
                     available_labs.append(lab_response)
 
-            # FACULTY: Labs with available slots + occupancy info
+            # FACULTY: Show labs with available slots OR configured slots (even if fully booked)
             elif user_role == "faculty":
-                if free_slots > 0:  # Hide fully booked labs
+                # Show if: (has free slots) OR (has slots configured for this day)
+                should_show = (free_slots > 0) or (total_slots > 0)
+                if should_show:
                     # Always include occupancy, even if 0
                     lab_response["occupancy"] = {
                         "total_slots": total_slots if total_slots > 0 else 0,
@@ -1919,6 +2281,20 @@ def get_available_labs():
                             f"{free_units}/{total_possible} free" if total_possible > 0 else "0/0 free"
                         )
                     }
+                    # Add capacity for faculty
+                    lab_response["capacity"] = lab_data["capacity"]
+                    # Add summary of students enrolled per time slot for faculty
+                    lab_response["students_per_slot"] = [
+                        {
+                            "time": slot['time'],
+                            "start_time": slot['start_time'],
+                            "end_time": slot['end_time'],
+                            "students_enrolled": slot.get('students_enrolled', slot.get('booked_count', 0)),
+                            "capacity": slot['capacity'],
+                            "available": slot['available']
+                        }
+                        for slot in slot_availability
+                    ]
                     # Low availability indicator (1-2 slots left)
                     if free_slots <= 2 and free_slots > 0:
                         lab_response["low_availability"] = True
@@ -1954,6 +2330,18 @@ def get_available_labs():
                         else "No slots configured"
                     )
                 }
+                # Add summary of students enrolled per time slot for lab assistants
+                lab_response["students_per_slot"] = [
+                    {
+                        "time": slot['time'],
+                        "start_time": slot['start_time'],
+                        "end_time": slot['end_time'],
+                        "students_enrolled": slot.get('students_enrolled', slot.get('booked_count', 0)),
+                        "capacity": slot['capacity'],
+                        "available": slot['available']
+                    }
+                    for slot in slot_availability
+                ]
                 lab_response["status"] = status
                 lab_response["status_badge"] = status_badge
                 lab_response["capacity"] = lab_data["capacity"]
@@ -1962,32 +2350,56 @@ def get_available_labs():
 
             # ADMIN: Everything - all labs, full occupancy, statuses, slot-level details
             elif user_role == "admin":
-                # Calculate slot-level occupancy
+                # Calculate slot-level occupancy - only count APPROVED bookings
                 slot_details = []
-                for slot in lab_data["availability_slots"]:
-                    slot_bookings = [
-                        b for b in lab_data["bookings"]
-                        if slots_overlap(
-                            slot['start_time'], slot['end_time'],
-                            b['start_time'], b['end_time']
-                        )
-                    ]
-                    slot_booked_count = len(slot_bookings)
-                    slot_capacity = slot.get('capacity', per_slot_capacity)
-                    slot_available_units = max(0, slot_capacity - slot_booked_count)
+                approved_bookings_for_admin = [
+                    b for b in lab_data["bookings"]
+                    if isinstance(b, dict) and b.get('status') == 'approved'
+                ]
 
-                    slot_detail = {
-                        "time": f"{slot['start_time']}-{slot['end_time']}",
-                        "start_time": slot['start_time'],
-                        "end_time": slot['end_time'],
-                        "booked_count": slot_booked_count,
-                        "available": slot_available_units,
-                        "occupancy_label": (
-                            "FULL" if slot_available_units <= 0
-                            else f"{slot_available_units}/{slot_capacity} free"
-                        )
-                    }
-                    slot_details.append(slot_detail)
+                # If lab has approved bookings but no slots configured, create slots from approved bookings
+                if len(approved_bookings_for_admin) > 0 and total_slots == 0:
+                    for booking in approved_bookings_for_admin:
+                        slot_start = booking['start_time']
+                        slot_end = booking['end_time']
+                        slot_capacity = per_slot_capacity
+                        slot_detail = {
+                            "time": f"{slot_start}-{slot_end}",
+                            "start_time": slot_start,
+                            "end_time": slot_end,
+                            "booked_count": 1,
+                            "students_enrolled": 1,  # Number of students enrolled in this time slot
+                            "available": 0,
+                            "occupancy_label": "FULL"
+                        }
+                        slot_details.append(slot_detail)
+                else:
+                    # Normal case: use availability slots
+                    for slot in lab_data["availability_slots"]:
+                        slot_bookings = [
+                            b for b in approved_bookings_for_admin
+                            if slots_overlap(
+                                slot['start_time'], slot['end_time'],
+                                b['start_time'], b['end_time']
+                            )
+                        ]
+                        slot_booked_count = len(slot_bookings)
+                        slot_capacity = slot.get('capacity', per_slot_capacity)
+                        slot_available_units = max(0, slot_capacity - slot_booked_count)
+
+                        slot_detail = {
+                            "time": f"{slot['start_time']}-{slot['end_time']}",
+                            "start_time": slot['start_time'],
+                            "end_time": slot['end_time'],
+                            "booked_count": slot_booked_count,
+                            "students_enrolled": slot_booked_count,  # Number of students enrolled in this time slot
+                            "available": slot_available_units,
+                            "occupancy_label": (
+                                "FULL" if slot_available_units <= 0
+                                else f"{slot_available_units}/{slot_capacity} free"
+                            )
+                        }
+                        slot_details.append(slot_detail)
 
                 # Always include occupancy, even if 0
                 lab_response["occupancy"] = {
@@ -2000,6 +2412,18 @@ def get_available_labs():
                     )
                 }
                 lab_response["slot_level_occupancy"] = slot_details
+                # Add summary of students enrolled per time slot for admin
+                lab_response["students_per_slot"] = [
+                    {
+                        "time": slot['time'],
+                        "start_time": slot['start_time'],
+                        "end_time": slot['end_time'],
+                        "students_enrolled": slot.get('students_enrolled', slot.get('booked_count', 0)),
+                        "capacity": slot['capacity'],
+                        "available": slot['available']
+                    }
+                    for slot in slot_availability
+                ]
                 lab_response["status"] = status
                 lab_response["status_badge"] = status_badge
                 lab_response["capacity"] = lab_data["capacity"]
@@ -2015,20 +2439,67 @@ def get_available_labs():
         if elapsed_time > 3.0:
             print(f"WARNING: Response time {elapsed_time:.2f}s exceeds 3s threshold")
 
+        # Calculate summary counts based on filtered labs for each role
+        # Count active labs from the filtered available_labs list
+        filtered_active_labs = sum(1 for lab in available_labs if lab.get("status") == "Active")
+        filtered_no_lab_active = sum(1 for lab in available_labs if lab.get("status") == "No lab active")
+        filtered_disabled = sum(1 for lab in available_labs if lab.get("status") == "Disabled")
+        filtered_total = len(available_labs)
+
         # Build response based on role
         response_data = {
             "date": date_str,
             "labs": available_labs
         }
 
-        # Add summary data for admin
+        # Add summary data for ALL roles (student, faculty, lab_assistant, admin)
         if user_role == "admin":
+            # Admin sees all labs in system
             response_data["summary"] = {
                 "total_labs": total_labs_in_system,
                 "active": active_labs,
-                "maintenance": maintenance_labs,
+                "no_lab_active": no_lab_active_count,
                 "disabled": disabled_labs_count
             }
+        else:
+            # Other roles see filtered labs (only labs they can see)
+            response_data["summary"] = {
+                "total_labs": filtered_total,
+                "active": filtered_active_labs,
+                "no_lab_active": filtered_no_lab_active,
+                "disabled": filtered_disabled
+            }
+
+        # Add diagnostic info for debugging (helpful when no labs show)
+        # ALWAYS include diagnostic info when no labs are returned
+        if len(available_labs) == 0:
+            try:
+                # Count labs that exist but don't have slots for this day
+                cursor.execute("SELECT COUNT(*) FROM labs")
+                total_labs_in_db = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT lab_id) FROM availability_slots WHERE day_of_week = ?",
+                    (day_of_week,)
+                )
+                labs_with_slots_today = cursor.fetchone()[0]
+                response_data["diagnostic"] = {
+                    "total_labs_in_database": total_labs_in_db,
+                    "labs_with_slots_for_day": labs_with_slots_today,
+                    "day_of_week": day_of_week,
+                    "message": (
+                        f"Found {total_labs_in_db} lab(s) in database, "
+                        f"but {labs_with_slots_today} have availability slots "
+                        f"configured for {day_of_week}."
+                    )
+                }
+            except Exception as e:
+                # If diagnostic fails, still return something helpful
+                response_data["diagnostic"] = {
+                    "total_labs_in_database": 0,
+                    "labs_with_slots_for_day": 0,
+                    "day_of_week": day_of_week,
+                    "message": f"Unable to retrieve diagnostic info: {str(e)}"
+                }
 
         # Add response time for all roles
         response_data["response_time_ms"] = round(elapsed_time * 1000, 2)
@@ -2160,6 +2631,380 @@ def unassign_lab_from_assistant(lab_id):
         return jsonify({"message": "Failed to unassign lab.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in unassign_lab_from_assistant: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/labs/<int:lab_id>/availability", methods=["PUT"])
+@require_role("admin")
+def update_lab_availability(lab_id):
+    """
+    Update available_slots for a lab (admin only).
+    Validates that available_slots is >= 0 and <= capacity.
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
+
+    # Validate available_slots field
+    if "available_slots" not in data:
+        return jsonify({"message": "available_slots field is required.", "success": False}), 400
+
+    try:
+        available_slots = int(data["available_slots"])
+    except (ValueError, TypeError):
+        return jsonify({"message": "available_slots must be an integer.", "success": False}), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if labs table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Labs table does not exist.", "success": False}), 404
+
+        # Check if lab exists and get capacity
+        cursor.execute("SELECT id, name, capacity FROM labs WHERE id = ?", (lab_id,))
+        lab = cursor.fetchone()
+        if not lab:
+            return jsonify({"message": "Lab not found.", "success": False}), 404
+
+        capacity = lab["capacity"]
+
+        # Validate available_slots: must be >= 0 and <= capacity
+        if available_slots < 0:
+            return jsonify({
+                "message": "available_slots cannot be negative. Minimum value is 0.",
+                "success": False
+            }), 400
+
+        if available_slots > capacity:
+            return jsonify({
+                "message": f"available_slots cannot exceed capacity ({capacity}).",
+                "success": False
+            }), 400
+
+        # Update available_slots
+        updated_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            UPDATE labs SET available_slots = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (available_slots, updated_at, lab_id),
+        )
+        conn.commit()
+
+        # Get the updated lab
+        cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
+        lab_row = cursor.fetchone()
+        # Safely get equipment_status
+        equipment_status = "Not Available"
+        try:
+            if "equipment_status" in lab_row.keys():
+                equipment_status = lab_row["equipment_status"] if lab_row["equipment_status"] else "Not Available"
+        except (KeyError, AttributeError):
+            pass
+        lab_data = {
+            "id": lab_row["id"],
+            "name": lab_row["name"],
+            "capacity": lab_row["capacity"],
+            "available_slots": available_slots,
+            "equipment": lab_row["equipment"],
+            "equipment_status": equipment_status,
+            "created_at": lab_row["created_at"],
+            "updated_at": lab_row["updated_at"],
+        }
+
+        return jsonify({
+            "message": f"Available slots updated to {available_slots} successfully.",
+            "lab": lab_data,
+            "success": True
+        }), 200
+
+    except sqlite3.Error as e:
+        print(f"Database Error in update_lab_availability: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to update available slots.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in update_lab_availability: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/labs/<int:lab_id>/equipment-status", methods=["PUT"])
+@require_role("admin")
+def update_equipment_status(lab_id):
+    """
+    Update equipment availability status for a lab (admin only).
+    Only allows "Available" or "Not Available" as valid status values.
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
+
+    # Validate equipment_status field
+    if "equipment_status" not in data:
+        return jsonify({"message": "equipment_status field is required.", "success": False}), 400
+
+    equipment_status = data["equipment_status"].strip()
+
+    # Validate that status is one of the allowed values
+    valid_statuses = ["Available", "Not Available"]
+    if equipment_status not in valid_statuses:
+        return jsonify({
+            "message": f"Invalid equipment_status. Must be one of: {', '.join(valid_statuses)}.",
+            "success": False
+        }), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if labs table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Labs table does not exist.", "success": False}), 404
+
+        # Check if lab exists
+        cursor.execute("SELECT id, name FROM labs WHERE id = ?", (lab_id,))
+        lab = cursor.fetchone()
+        if not lab:
+            return jsonify({"message": "Lab not found.", "success": False}), 404
+
+        # Update equipment_status
+        updated_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            UPDATE labs SET equipment_status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (equipment_status, updated_at, lab_id),
+        )
+        conn.commit()
+
+        # Get the updated lab
+        cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
+        lab_row = cursor.fetchone()
+        # Safely get available_slots
+        capacity_val = lab_row["capacity"] if "capacity" in lab_row.keys() else 0
+        available_slots = capacity_val
+        try:
+            if "available_slots" in lab_row.keys():
+                available_slots = lab_row["available_slots"] if lab_row["available_slots"] is not None else capacity_val
+        except (KeyError, AttributeError):
+            pass
+        lab_data = {
+            "id": lab_row["id"],
+            "name": lab_row["name"],
+            "capacity": lab_row["capacity"],
+            "available_slots": available_slots,
+            "equipment": lab_row["equipment"],
+            "equipment_status": equipment_status,
+            "created_at": lab_row["created_at"],
+            "updated_at": lab_row["updated_at"],
+        }
+
+        return jsonify({
+            "message": f"Equipment status updated to '{equipment_status}' successfully.",
+            "lab": lab_data,
+            "success": True
+        }), 200
+
+    except sqlite3.Error as e:
+        print(f"Database Error in update_equipment_status: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to update equipment status.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in update_equipment_status: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/reserve-lab", methods=["POST"])
+@require_role("faculty")
+def reserve_lab():
+    """
+    Reserve a lab (faculty only).
+    Creates a booking request with status "Pending".
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
+
+    # Validate required fields
+    required_fields = ["lab_id", "date", "start_time", "end_time", "reason"]
+    if not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required fields.", "success": False}), 400
+
+    college_id = request.current_user.get("college_id")
+    lab_id = data["lab_id"]
+    reservation_date = data["date"]
+    start_time = data["start_time"]
+    end_time = data["end_time"]
+
+    # Validate date and time format
+    try:
+        datetime.datetime.strptime(reservation_date, "%Y-%m-%d")
+        datetime.datetime.strptime(start_time, "%H:%M")
+        datetime.datetime.strptime(end_time, "%H:%M")
+    except ValueError:
+        return jsonify({"message": "Invalid date or time format.", "success": False}), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Ensure bookings table exists
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bookings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                college_id TEXT NOT NULL,
+                lab_name TEXT NOT NULL,
+                booking_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                FOREIGN KEY (college_id) REFERENCES users(college_id)
+            );
+            """
+        )
+        conn.commit()
+
+        # Check if lab exists and get lab name
+        cursor.execute("SELECT id, name FROM labs WHERE id = ?", (lab_id,))
+        lab = cursor.fetchone()
+        if not lab:
+            return jsonify({"message": "Lab not found.", "success": False}), 404
+
+        lab_name = lab["name"]
+
+        # Create booking with status "Pending"
+        created_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (college_id, lab_name, reservation_date, start_time, end_time, "pending", created_at),
+        )
+        conn.commit()
+        booking_id = cursor.lastrowid
+
+        return jsonify({
+            "message": "Lab reservation request created successfully. Waiting for admin approval.",
+            "booking_id": booking_id,
+            "status": "pending",
+            "success": True
+        }), 201
+
+    except sqlite3.Error as e:
+        print(f"Database Error in reserve_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to create reservation.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in reserve_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/reservations/<int:reservation_id>/cancel", methods=["PUT"])
+@require_role("faculty", "lab_assistant", "admin")
+def cancel_reservation(reservation_id):
+    """
+    Cancel a reservation (faculty, lab assistant, admin).
+    Cancellation increases available_slots by 1 if the booking was approved.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if bookings table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+        if not cursor.fetchone():
+            return jsonify({"message": "Bookings table does not exist.", "success": False}), 404
+
+        # Check if booking exists and get its details
+        cursor.execute(
+            "SELECT college_id, lab_name, status FROM bookings WHERE id = ?",
+            (reservation_id,),
+        )
+        booking = cursor.fetchone()
+        if not booking:
+            return jsonify({"message": "Reservation not found.", "success": False}), 404
+
+        # Check permissions: faculty can only cancel their own bookings
+        user_role = request.current_user.get("role")
+        user_college_id = request.current_user.get("college_id")
+
+        if user_role == "faculty" and booking["college_id"] != user_college_id:
+            return jsonify({"message": "You can only cancel your own reservations.", "success": False}), 403
+
+        # Only increase availability if booking was approved
+        was_approved = booking["status"] == "approved"
+        lab_name = booking["lab_name"]
+
+        # Update booking status to cancelled
+        updated_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            "UPDATE bookings SET status = 'cancelled', updated_at = ? WHERE id = ?",
+            (updated_at, reservation_id),
+        )
+
+        # Increment available_slots if booking was approved
+        if was_approved:
+            # Get current available_slots and capacity
+            cursor.execute("SELECT available_slots, capacity FROM labs WHERE name = ?", (lab_name,))
+            lab_row = cursor.fetchone()
+            if lab_row:
+                if "available_slots" in lab_row.keys():
+                    current_slots = lab_row["available_slots"] if lab_row["available_slots"] is not None else 0
+                else:
+                    current_slots = 0
+                capacity = lab_row["capacity"] if "capacity" in lab_row.keys() else 0
+                new_slots = min(capacity, current_slots + 1)  # Ensure it doesn't exceed capacity
+                cursor.execute(
+                    "UPDATE labs SET available_slots = ?, updated_at = ? WHERE name = ?",
+                    (new_slots, updated_at, lab_name)
+                )
+
+        conn.commit()
+
+        return jsonify({
+            "message": "Reservation cancelled successfully.",
+            "success": True
+        }), 200
+
+    except sqlite3.Error as e:
+        print(f"Database Error in cancel_reservation: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to cancel reservation.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in cancel_reservation: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
