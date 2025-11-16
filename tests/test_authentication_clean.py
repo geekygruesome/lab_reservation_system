@@ -4456,8 +4456,18 @@ def test_student_sees_only_labs_with_available_slots(client):
     )
     # Book Lab 2 fully
     cursor.execute(
-        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("STU1", "Lab Fully Booked", next_monday, "09:00", "12:00", "approved", datetime.datetime.now().isoformat()),
+        "INSERT INTO bookings (college_id, lab_name, booking_date, "
+        "start_time, end_time, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "STU1",
+            "Lab Fully Booked",
+            next_monday,
+            "09:00",
+            "12:00",
+            "approved",
+            datetime.datetime.now().isoformat(),
+        ),
     )
     conn.commit()
 
@@ -4537,12 +4547,32 @@ def test_faculty_sees_occupancy_and_low_availability(client):
     )
     # Book 2 slots
     cursor.execute(
-        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("FAC1", "Faculty Lab", next_monday, "09:00", "10:00", "approved", datetime.datetime.now().isoformat()),
+        "INSERT INTO bookings (college_id, lab_name, booking_date, "
+        "start_time, end_time, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "FAC1",
+            "Faculty Lab",
+            next_monday,
+            "09:00",
+            "10:00",
+            "approved",
+            datetime.datetime.now().isoformat(),
+        ),
     )
     cursor.execute(
-        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("FAC1", "Faculty Lab", next_monday, "10:00", "11:00", "approved", datetime.datetime.now().isoformat()),
+        "INSERT INTO bookings (college_id, lab_name, booking_date, "
+        "start_time, end_time, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "FAC1",
+            "Faculty Lab",
+            next_monday,
+            "10:00",
+            "11:00",
+            "approved",
+            datetime.datetime.now().isoformat(),
+        ),
     )
     conn.commit()
 
@@ -4638,12 +4668,22 @@ def test_lab_assistant_sees_all_labs_with_status(client):
         (lab2_id, day_name, "09:00", "12:00"),
     )
     cursor.execute(
-        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("LA1", "Lab Fully Booked", next_monday, "09:00", "12:00", "approved", datetime.datetime.now().isoformat()),
+        "INSERT INTO bookings (college_id, lab_name, booking_date, "
+        "start_time, end_time, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "LA1",
+            "Lab Fully Booked",
+            next_monday,
+            "09:00",
+            "12:00",
+            "approved",
+            datetime.datetime.now().isoformat(),
+        ),
     )
     # Lab 3: No slots (maintenance)
     # No availability slots added
-    
+
     # Assign all labs to the lab assistant
     import datetime as dt
     assigned_at = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -4729,8 +4769,17 @@ def test_admin_sees_full_details_with_slot_level_occupancy(client):
         (lab_id, day_name, "14:00", "16:00"),
     )
     cursor.execute(
-        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("ADM1", "Admin Lab", next_monday, "09:00", "11:00", "approved", datetime.datetime.now().isoformat()),
+        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, "
+        "end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "ADM1",
+            "Admin Lab",
+            next_monday,
+            "09:00",
+            "11:00",
+            "approved",
+            datetime.datetime.now().isoformat(),
+        ),
     )
     conn.commit()
 

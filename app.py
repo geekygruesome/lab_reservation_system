@@ -613,7 +613,11 @@ def admin_get_available_labs():
             per_slot_capacity = lab_data.get("capacity", 1) or 1
             total_possible = total_slots * per_slot_capacity
             # total_booked = sum of booked_count across slots
-            total_booked = sum(s["booked_count"] for s in lab_data["slots_by_time"].values()) if lab_data.get("slots_by_time") else 0
+            total_booked = (
+                sum(s["booked_count"] for s in lab_data["slots_by_time"].values())
+                if lab_data.get("slots_by_time")
+                else 0
+            )
             total_free = max(0, total_possible - total_booked)
 
             # Determine lab status
@@ -1871,7 +1875,10 @@ def get_available_labs():
                     'capacity': slot_capacity,
                     'booked_count': slot_booked_count,
                     'available': slot_available_units,
-                    'occupancy_label': ("FULL" if slot_available_units <= 0 else f"{slot_available_units}/{slot_capacity} free")
+                    'occupancy_label': (
+                        "FULL" if slot_available_units <= 0
+                        else f"{slot_available_units}/{slot_capacity} free"
+                    )
                 })
 
             # Build student-friendly available_slots with occupancy shown
@@ -1879,7 +1886,10 @@ def get_available_labs():
             student_available_slots = []
             for slot_avail in slot_availability:
                 slot_str = f"{slot_avail['start_time']}-{slot_avail['end_time']}"
-                occupancy_info = f"({slot_avail['booked_count']}/{slot_avail['capacity']} booked, {slot_avail['available']} free)"
+                occupancy_info = (
+                    f"({slot_avail['booked_count']}/{slot_avail['capacity']} booked, "
+                    f"{slot_avail['available']} free)"
+                )
                 student_available_slots.append(f"{slot_str} {occupancy_info}")
 
             # Role-based filtering and data inclusion
@@ -1972,7 +1982,10 @@ def get_available_labs():
                         "end_time": slot['end_time'],
                         "booked_count": slot_booked_count,
                         "available": slot_available_units,
-                        "occupancy_label": "FULL" if slot_available_units <= 0 else f"{slot_available_units}/{slot_capacity} free"
+                        "occupancy_label": (
+                            "FULL" if slot_available_units <= 0
+                            else f"{slot_available_units}/{slot_capacity} free"
+                        )
                     }
                     slot_details.append(slot_detail)
 
