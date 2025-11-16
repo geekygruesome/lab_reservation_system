@@ -61,6 +61,30 @@ def client(monkeypatch):
         );
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lab_assistant_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lab_id INTEGER NOT NULL,
+            assistant_college_id TEXT NOT NULL,
+            assigned_at TEXT NOT NULL,
+            FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE,
+            FOREIGN KEY (assistant_college_id) REFERENCES users(college_id)
+        );
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS disabled_labs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lab_id INTEGER NOT NULL,
+            disabled_date TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE
+        );
+        """
+    )
     conn.commit()
     monkeypatch.setattr("app.get_db_connection", lambda: conn)
     monkeypatch.setattr("app.DATABASE", ":memory:")
@@ -3772,8 +3796,9 @@ def test_get_available_labs_with_slots_no_bookings(client):
     assert len(data["labs"]) == 1
     assert data["labs"][0]["lab_name"] == "Test Lab Available"
     assert len(data["labs"][0]["available_slots"]) == 2
-    assert "09:00-12:00" in data["labs"][0]["available_slots"]
-    assert "14:00-17:00" in data["labs"][0]["available_slots"]
+    # Slots now include occupancy info: "09:00-12:00 (0/30 booked, 30 free)"
+    assert any("09:00-12:00" in slot for slot in data["labs"][0]["available_slots"])
+    assert any("14:00-17:00" in slot for slot in data["labs"][0]["available_slots"])
 
 
 def test_get_available_labs_with_bookings_overlap(client):
@@ -3811,7 +3836,7 @@ def test_get_available_labs_with_bookings_overlap(client):
         "/api/labs",
         json={
             "name": "Test Lab Booked",
-            "capacity": 30,
+            "capacity": 1,
             "equipment": ["Computer"],
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -3916,7 +3941,7 @@ def test_get_available_labs_partial_overlap_filtered(client):
         "/api/labs",
         json={
             "name": "Test Lab Partial",
-            "capacity": 30,
+            "capacity": 1,
             "equipment": ["Computer"],
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -3977,7 +4002,8 @@ def test_get_available_labs_partial_overlap_filtered(client):
     labs = data["labs"]
     assert len(labs) == 1
     assert len(labs[0]["available_slots"]) == 1
-    assert "14:00-17:00" in labs[0]["available_slots"]
+    # Slots now include occupancy info: "HH:MM-HH:MM (X/Y booked, Z free)"
+    assert any("14:00-17:00" in slot for slot in labs[0]["available_slots"])
 
 
 def test_get_available_labs_pending_bookings_filtered(client):
@@ -4015,7 +4041,7 @@ def test_get_available_labs_pending_bookings_filtered(client):
         "/api/labs",
         json={
             "name": "Test Lab Pending",
-            "capacity": 30,
+            "capacity": 1,
             "equipment": ["Computer"],
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -4161,7 +4187,8 @@ def test_get_available_labs_rejected_bookings_not_filtered(client):
     labs = data["labs"]
     assert len(labs) == 1
     assert len(labs[0]["available_slots"]) == 1
-    assert "09:00-17:00" in labs[0]["available_slots"]
+    # Slots now include occupancy info: "HH:MM-HH:MM (X/Y booked, Z free)"
+    assert any("09:00-17:00" in slot for slot in labs[0]["available_slots"])
 
 
 def test_get_available_labs_multiple_labs(client):
@@ -4355,3 +4382,561 @@ def test_get_available_labs_no_slots_for_day(client):
     labs = data["labs"]
     # Lab has slots only for Tuesday, so should not appear for Monday
     assert len(labs) == 0
+
+
+# --- Role-Based Available Labs Tests ---
+
+
+def test_student_sees_only_labs_with_available_slots(client):
+    """Test that student role only sees labs with available slots."""
+    # Register and login as student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "STU1",
+            "name": "Student Test",
+            "email": "stu1@pesu.edu",
+            "password": "Pass1!234",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "STU1", "password": "Pass1!234"})
+    token = login_resp.get_json()["token"]
+
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "STU1ADMIN",
+            "name": "Admin Test",
+            "email": "stu1admin@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "STU1ADMIN", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create two labs
+    lab1_resp = client.post(
+        "/api/labs",
+        json={"name": "Lab With Slots", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab1_id = lab1_resp.get_json()["lab"]["id"]
+
+    lab2_resp = client.post(
+        "/api/labs",
+        json={"name": "Lab Fully Booked", "capacity": 1, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab2_id = lab2_resp.get_json()["lab"]["id"]
+
+    # Add availability slots
+    from app import get_db_connection
+    import datetime
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today = datetime.datetime.now()
+    days_ahead = (0 - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    next_monday = (today + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    day_name = datetime.datetime.strptime(next_monday, "%Y-%m-%d").strftime("%A")
+
+    # Lab 1: Has available slots
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab1_id, day_name, "09:00", "12:00"),
+    )
+    # Lab 2: Has slots but fully booked
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab2_id, day_name, "09:00", "12:00"),
+    )
+    # Book Lab 2 fully
+    cursor.execute(
+        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("STU1", "Lab Fully Booked", next_monday, "09:00", "12:00", "approved", datetime.datetime.now().isoformat()),
+    )
+    conn.commit()
+
+    # Student should only see Lab 1 (has available slots)
+    r = client.get(f"/api/labs/available?date={next_monday}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert len(data["labs"]) == 1
+    assert data["labs"][0]["lab_name"] == "Lab With Slots"
+    # Student should not see occupancy data
+    assert "occupancy" not in data["labs"][0]
+    assert "status" not in data["labs"][0]
+
+
+def test_faculty_sees_occupancy_and_low_availability(client):
+    """Test that faculty role sees occupancy info and low availability indicators."""
+    # Register and login as faculty
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "FAC1",
+            "name": "Faculty Test",
+            "email": "fac1@pesu.edu",
+            "password": "Pass1!234",
+            "role": "faculty",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "FAC1", "password": "Pass1!234"})
+    token = login_resp.get_json()["token"]
+
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "FAC1ADMIN",
+            "name": "Admin Test",
+            "email": "fac1admin@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "FAC1ADMIN", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create lab with multiple slots
+    lab_resp = client.post(
+        "/api/labs",
+        json={"name": "Faculty Lab", "capacity": 1, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = lab_resp.get_json()["lab"]["id"]
+
+    # Add availability slots
+    from app import get_db_connection
+    import datetime
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today = datetime.datetime.now()
+    days_ahead = (0 - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    next_monday = (today + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    day_name = datetime.datetime.strptime(next_monday, "%Y-%m-%d").strftime("%A")
+
+    # Add 3 slots, book 2 (leaving 1 free - low availability)
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab_id, day_name, "09:00", "10:00"),
+    )
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab_id, day_name, "10:00", "11:00"),
+    )
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab_id, day_name, "11:00", "12:00"),
+    )
+    # Book 2 slots
+    cursor.execute(
+        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("FAC1", "Faculty Lab", next_monday, "09:00", "10:00", "approved", datetime.datetime.now().isoformat()),
+    )
+    cursor.execute(
+        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("FAC1", "Faculty Lab", next_monday, "10:00", "11:00", "approved", datetime.datetime.now().isoformat()),
+    )
+    conn.commit()
+
+    # Faculty should see lab with occupancy and low availability badge
+    r = client.get(f"/api/labs/available?date={next_monday}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert len(data["labs"]) == 1
+    lab = data["labs"][0]
+    assert lab["lab_name"] == "Faculty Lab"
+    assert "occupancy" in lab
+    assert lab["occupancy"]["free"] == 1
+    assert lab["occupancy"]["total_slots"] == 3
+    assert lab["low_availability"] is True
+    assert "availability_badge" in lab
+    # Faculty should not see status or capacity
+    assert "status" not in lab
+    assert "capacity" not in lab
+
+
+def test_lab_assistant_sees_all_labs_with_status(client):
+    """Test that lab assistant sees all labs including fully booked and maintenance status."""
+    # Register and login as lab assistant
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA1",
+            "name": "Lab Assistant Test",
+            "email": "la1@pesu.edu",
+            "password": "Pass1!234",
+            "role": "lab_assistant",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "LA1", "password": "Pass1!234"})
+    token = login_resp.get_json()["token"]
+
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA1ADMIN",
+            "name": "Admin Test",
+            "email": "la1admin@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "LA1ADMIN", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create labs: one with slots, one fully booked, one with no slots (maintenance)
+    lab1_resp = client.post(
+        "/api/labs",
+        json={"name": "Lab Available", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab1_id = lab1_resp.get_json()["lab"]["id"]
+
+    lab2_resp = client.post(
+        "/api/labs",
+        json={"name": "Lab Fully Booked", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab2_id = lab2_resp.get_json()["lab"]["id"]
+
+    lab3_resp = client.post(
+        "/api/labs",
+        json={"name": "Lab Maintenance", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab3_id = lab3_resp.get_json()["lab"]["id"]
+
+    # Add availability slots
+    from app import get_db_connection
+    import datetime
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today = datetime.datetime.now()
+    days_ahead = (0 - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    next_monday = (today + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    day_name = datetime.datetime.strptime(next_monday, "%Y-%m-%d").strftime("%A")
+
+    # Lab 1: Has available slots
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab1_id, day_name, "09:00", "12:00"),
+    )
+    # Lab 2: Has slots but fully booked
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab2_id, day_name, "09:00", "12:00"),
+    )
+    cursor.execute(
+        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("LA1", "Lab Fully Booked", next_monday, "09:00", "12:00", "approved", datetime.datetime.now().isoformat()),
+    )
+    # Lab 3: No slots (maintenance)
+    # No availability slots added
+    
+    # Assign all labs to the lab assistant
+    import datetime as dt
+    assigned_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    cursor.execute(
+        "INSERT INTO lab_assistant_assignments (lab_id, assistant_college_id, assigned_at) VALUES (?, ?, ?)",
+        (lab1_id, "LA1", assigned_at),
+    )
+    cursor.execute(
+        "INSERT INTO lab_assistant_assignments (lab_id, assistant_college_id, assigned_at) VALUES (?, ?, ?)",
+        (lab2_id, "LA1", assigned_at),
+    )
+    cursor.execute(
+        "INSERT INTO lab_assistant_assignments (lab_id, assistant_college_id, assigned_at) VALUES (?, ?, ?)",
+        (lab3_id, "LA1", assigned_at),
+    )
+    conn.commit()
+
+    # Lab assistant should see all assigned labs
+    r = client.get(f"/api/labs/available?date={next_monday}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    data = r.get_json()
+    # Should see all 3 assigned labs
+    assert len(data["labs"]) == 3
+    lab_names = [lab["lab_name"] for lab in data["labs"]]
+    assert "Lab Available" in lab_names
+    assert "Lab Fully Booked" in lab_names
+    assert "Lab Maintenance" in lab_names
+
+    # Check each lab has occupancy and status
+    for lab in data["labs"]:
+        assert "occupancy" in lab
+        assert "status" in lab
+        assert "status_badge" in lab
+        assert "capacity" in lab
+        if lab["lab_name"] == "Lab Maintenance":
+            assert lab["status"] == "Maintenance"
+            assert lab["status_badge"] == "🟡"
+
+
+def test_admin_sees_full_details_with_slot_level_occupancy(client):
+    """Test that admin sees all labs with full details including slot-level occupancy."""
+    # Register and login as admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "ADM1",
+            "name": "Admin Test",
+            "email": "adm1@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "ADM1", "password": "AdminPass1!"})
+    token = login_resp.get_json()["token"]
+
+    # Create lab
+    lab_resp = client.post(
+        "/api/labs",
+        json={"name": "Admin Lab", "capacity": 50, "equipment": ["PC", "Projector"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    lab_id = lab_resp.get_json()["lab"]["id"]
+
+    # Add availability slots
+    from app import get_db_connection
+    import datetime
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today = datetime.datetime.now()
+    days_ahead = (0 - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    next_monday = (today + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+    day_name = datetime.datetime.strptime(next_monday, "%Y-%m-%d").strftime("%A")
+
+    # Add 2 slots, book 1
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab_id, day_name, "09:00", "11:00"),
+    )
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab_id, day_name, "14:00", "16:00"),
+    )
+    cursor.execute(
+        "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("ADM1", "Admin Lab", next_monday, "09:00", "11:00", "approved", datetime.datetime.now().isoformat()),
+    )
+    conn.commit()
+
+    # Admin should see full details
+    r = client.get(f"/api/labs/available?date={next_monday}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert len(data["labs"]) == 1
+    lab = data["labs"][0]
+    assert lab["lab_name"] == "Admin Lab"
+    assert "occupancy" in lab
+    assert "status" in lab
+    assert "status_badge" in lab
+    assert "capacity" in lab
+    assert lab["capacity"] == 50
+    assert "equipment" in lab
+    assert "slot_level_occupancy" in lab
+    assert len(lab["slot_level_occupancy"]) == 2
+    # Check slot-level details
+    slot1 = lab["slot_level_occupancy"][0]
+    assert "time" in slot1
+    assert "occupancy_label" in slot1
+    assert "booked_count" in slot1
+    # Check summary exists
+    assert "summary" in data
+    assert "total_labs" in data["summary"]
+    assert "active" in data["summary"]
+
+
+def test_assign_lab_to_assistant_requires_admin(client):
+    """Test that assigning labs requires admin role."""
+    # Register and login as student
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "STU_ASSIGN",
+            "name": "Student Test",
+            "email": "stuassign@pesu.edu",
+            "password": "Pass1!234",
+            "role": "student",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "STU_ASSIGN", "password": "Pass1!234"})
+    token = login_resp.get_json()["token"]
+
+    # Try to assign lab (should fail)
+    r = client.post(
+        "/api/admin/labs/1/assign",
+        json={"assistant_college_id": "LA001"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 403
+
+
+def test_assign_lab_to_assistant_success(client):
+    """Test successful lab assignment to lab assistant."""
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "ADM_ASSIGN",
+            "name": "Admin Test",
+            "email": "admassign@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "ADM_ASSIGN", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register lab assistant
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_ASSIGN",
+            "name": "Lab Assistant Test",
+            "email": "laassign@pesu.edu",
+            "password": "Pass1!234",
+            "role": "lab_assistant",
+        },
+    )
+
+    # Create lab
+    lab_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Assign", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = lab_resp.get_json()["lab"]["id"]
+
+    # Assign lab to assistant
+    r = client.post(
+        f"/api/admin/labs/{lab_id}/assign",
+        json={"assistant_college_id": "LA_ASSIGN"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["success"] is True
+    assert "assigned" in data["message"].lower()
+
+
+def test_assign_lab_to_assistant_duplicate(client):
+    """Test that duplicate assignment is rejected."""
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "ADM_DUP",
+            "name": "Admin Test",
+            "email": "admdup@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "ADM_DUP", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register lab assistant
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_DUP",
+            "name": "Lab Assistant Test",
+            "email": "ladup@pesu.edu",
+            "password": "Pass1!234",
+            "role": "lab_assistant",
+        },
+    )
+
+    # Create lab
+    lab_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Dup", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = lab_resp.get_json()["lab"]["id"]
+
+    # Assign lab to assistant (first time)
+    r1 = client.post(
+        f"/api/admin/labs/{lab_id}/assign",
+        json={"assistant_college_id": "LA_DUP"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r1.status_code == 200
+
+    # Try to assign again (should fail)
+    r2 = client.post(
+        f"/api/admin/labs/{lab_id}/assign",
+        json={"assistant_college_id": "LA_DUP"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r2.status_code == 400
+    data = r2.get_json()
+    assert "already assigned" in data["message"].lower()
+
+
+def test_unassign_lab_from_assistant_success(client):
+    """Test successful lab unassignment from lab assistant."""
+    # Register admin
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "ADM_UNASSIGN",
+            "name": "Admin Test",
+            "email": "admunassign@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "ADM_UNASSIGN", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Register lab assistant
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_UNASSIGN",
+            "name": "Lab Assistant Test",
+            "email": "launassign@pesu.edu",
+            "password": "Pass1!234",
+            "role": "lab_assistant",
+        },
+    )
+
+    # Create lab
+    lab_resp = client.post(
+        "/api/labs",
+        json={"name": "Test Lab Unassign", "capacity": 30, "equipment": ["PC"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    lab_id = lab_resp.get_json()["lab"]["id"]
+
+    # Assign lab first
+    client.post(
+        f"/api/admin/labs/{lab_id}/assign",
+        json={"assistant_college_id": "LA_UNASSIGN"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    # Unassign lab
+    r = client.post(
+        f"/api/admin/labs/{lab_id}/unassign",
+        json={"assistant_college_id": "LA_UNASSIGN"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["success"] is True

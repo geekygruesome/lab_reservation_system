@@ -373,8 +373,28 @@
         <!-- Available Labs Section -->
         <div class="bookings-section" id="availableLabsSection" style="display: none;">
             <h2>Available Labs</h2>
+            <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <label for="availableDatePicker" style="display: block; margin-bottom: 8px; font-weight: 600; color: #333;">
+                    Select Date to View Available Labs:
+                </label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input 
+                        type="date" 
+                        id="availableDatePicker" 
+                        style="padding: 10px; border: 2px solid #667eea; border-radius: 5px; font-size: 14px; flex: 1; max-width: 300px;"
+                        min=""
+                    >
+                    <button 
+                        onclick="loadAvailableLabsForDate()" 
+                        style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; white-space: nowrap;"
+                    >
+                        Check Availability
+                    </button>
+                </div>
+                <div id="dateError" style="color: #ef4444; margin-top: 8px; display: none; font-size: 14px;"></div>
+            </div>
             <div id="availableLabsContainer">
-                <div class="empty-state">Loading available labs...</div>
+                <div class="empty-state">Select a date above to view available labs and slots.</div>
             </div>
         </div>
 
@@ -591,6 +611,10 @@
                 if (response.ok) {
                     alert('Booking approved successfully!');
                     loadPendingBookings();
+                    // Refresh available labs view if it's open
+                    if (document.getElementById('availableLabsSection').style.display !== 'none') {
+                        await loadAvailableLabsForDate();
+                    }
                 } else {
                     const data = await response.json();
                     alert(data.message || 'Failed to approve booking');
@@ -619,6 +643,10 @@
                 if (response.ok) {
                     alert('Booking rejected successfully!');
                     loadPendingBookings();
+                    // Refresh available labs view if it's open
+                    if (document.getElementById('availableLabsSection').style.display !== 'none') {
+                        await loadAvailableLabsForDate();
+                    }
                 } else {
                     const data = await response.json();
                     alert(data.message || 'Failed to reject booking');
@@ -999,6 +1027,10 @@
                     alert(data.message || 'Booking created successfully!');
                     closeBookingModal();
                     loadUserBookings();
+                    // Refresh available labs view if it's open
+                    if (document.getElementById('availableLabsSection').style.display !== 'none') {
+                        await loadAvailableLabsForDate();
+                    }
                 } else {
                     alert(data.message || 'Failed to create booking');
                 }
@@ -1024,13 +1056,21 @@
             document.getElementById('adminBookingsSection').style.display = 'none';
             document.getElementById('userBookingsSection').style.display = 'none';
             document.getElementById('labManagementSection').style.display = 'none';
-            
+
             // Show available labs section
             document.getElementById('availableLabsSection').style.display = 'block';
-            await loadAvailableLabs();
+
+            // Set minimum date to today
+            const datePicker = document.getElementById('availableDatePicker');
+            const today = new Date().toISOString().split('T')[0];
+            datePicker.min = today;
+            datePicker.value = today; // Default to today
+
+            // Load available labs for today by default
+            await loadAvailableLabsForDate();
         }
 
-        async function loadAvailableLabs() {
+        async function loadAvailableLabsForDate() {
             const token = localStorage.getItem('token');
             if (!token) {
                 document.getElementById('availableLabsContainer').innerHTML =
@@ -1038,66 +1078,182 @@
                 return;
             }
 
+            const datePicker = document.getElementById('availableDatePicker');
+            const selectedDate = datePicker.value;
+            const errorDiv = document.getElementById('dateError');
+
+            // Clear previous errors
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+
+            if (!selectedDate) {
+                errorDiv.textContent = 'Please select a date.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // Validate date is not in past
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const selected = new Date(selectedDate);
+            selected.setHours(0, 0, 0, 0);
+
+            if (selected < today) {
+                errorDiv.textContent = 'Past dates are not allowed. Please select today or a future date.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            const container = document.getElementById('availableLabsContainer');
+            container.innerHTML = '<div class="empty-state">Loading available labs for ' + selectedDate + '...</div>';
+
             try {
-                console.log('Loading available labs...');
-                const response = await fetch('http://localhost:5000/api/labs', {
+                console.log('Loading available labs for date:', selectedDate);
+                const startTime = performance.now();
+
+                const response = await fetch(`http://localhost:5000/api/labs/available?date=${selectedDate}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
                     },
                 });
 
-                console.log('Available labs response status:', response.status);
+                const elapsedTime = ((performance.now() - startTime) / 1000).toFixed(2);
+                console.log(`Available labs response received in ${elapsedTime}s, status:`, response.status);
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-                    console.error('Failed to load labs:', errorData);
-                    throw new Error(errorData.message || 'Failed to load labs');
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    console.error('Failed to load available labs:', errorData);
+
+                    if (errorData.error) {
+                        errorDiv.textContent = errorData.error; 
+                        errorDiv.style.display = 'block';
+                        container.innerHTML = '<div class="empty-state">' + errorData.error + '</div>';
+                    } else {
+                        throw new Error(errorData.message || 'Failed to load available labs');
+                    }
+                    return;
                 }
 
                 const data = await response.json();
                 console.log('Available labs data:', data);
-                const container = document.getElementById('availableLabsContainer');
 
-                if (data && data.success && data.labs && data.labs.length > 0) {
-                    let html = '<table class="bookings-table"><thead><tr>';
-                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th>';
+                // Get user role from localStorage
+                const user = localStorage.getItem('user');
+                const userData = user ? JSON.parse(user) : {};
+                const userRole = userData.role || 'student';
+
+                if (data.labs && data.labs.length > 0) {
+                    let html = '<div style="margin-bottom: 15px; padding: 10px; background: #e6f0ff; border-radius: 5px; color: #1e40af;">';
+                    html += `<strong>Available Labs for ${data.date}</strong> (Response time: ${data.response_time_ms}ms)`;
+                    
+                    // Show summary for admin
+                    if (userRole === 'admin' && data.summary) {
+                        html += ` | Total: ${data.summary.total_labs}, Active: ${data.summary.active}, Maintenance: ${data.summary.maintenance}, Disabled: ${data.summary.disabled}`;
+                    }
+                    html += '</div>';
+
+                    // Build table based on role
+                    html += '<table class="bookings-table"><thead><tr>';
+                    html += '<th>Lab ID</th><th>Lab Name</th>';
+                    
+                    // Add role-specific columns
+                    if (userRole === 'faculty' || userRole === 'lab_assistant' || userRole === 'admin') {
+                        html += '<th>Occupancy</th>';
+                    }
+                    if (userRole === 'lab_assistant' || userRole === 'admin') {
+                        html += '<th>Status</th>';
+                    }
+                    if (userRole === 'admin') {
+                        html += '<th>Capacity</th>';
+                    }
+                    html += '<th>Available Slots</th>';
+                    if (userRole === 'admin') {
+                        html += '<th>Slot Details</th>';
+                    }
                     html += '</tr></thead><tbody>';
 
                     data.labs.forEach(lab => {
-                        // Parse equipment if it's JSON string
-                        let equipmentDisplay = lab.equipment;
-                        try {
-                            const eq = JSON.parse(lab.equipment);
-                            if (Array.isArray(eq)) {
-                                equipmentDisplay = eq.join(', ');
-                            }
-                        } catch (e) {
-                            // Not JSON, use as-is
-                        }
-                        
+                        // Format available slots
+                        const slotsHtml = lab.available_slots.length > 0
+                            ? lab.available_slots.map(slot =>
+                                `<span style="display: inline-block; margin: 3px; padding: 5px 10px; background: #10b981; color: white; border-radius: 4px; font-size: 12px;">${slot}</span>`
+                              ).join('')
+                            : '<span style="color: #ef4444; font-weight: 600;">No slots available</span>';
+
                         html += `<tr>
-                            <td>${lab.id}</td>
-                            <td>${lab.name}</td>
-                            <td>${lab.capacity}</td>
-                            <td>${equipmentDisplay}</td>
-                            <td>${new Date(lab.created_at).toLocaleDateString()}</td>
-                        </tr>`;
+                            <td>${lab.lab_id}</td>
+                            <td><strong>${lab.lab_name}</strong>`;
+                        
+                        // Faculty: Show low availability badge
+                        if (userRole === 'faculty' && lab.low_availability) {
+                            html += `<br><span style="display: inline-block; margin-top: 5px; padding: 3px 8px; background: #f59e0b; color: white; border-radius: 3px; font-size: 11px; font-weight: 600;">${lab.availability_badge}</span>`;
+                        }
+                        html += '</td>';
+
+                        // Occupancy column (Faculty, Lab Assistant, Admin)
+                        if (userRole === 'faculty' || userRole === 'lab_assistant' || userRole === 'admin') {
+                            if (lab.occupancy) {
+                                const occColor = lab.occupancy.free > 0 ? '#10b981' : '#ef4444';
+                                html += `<td style="color: ${occColor}; font-weight: 600;">${lab.occupancy.occupancy_label}</td>`;
+                            } else {
+                                html += '<td>-</td>';
+                            }
+                        }
+
+                        // Status column (Lab Assistant, Admin)
+                        if (userRole === 'lab_assistant' || userRole === 'admin') {
+                            if (lab.status && lab.status_badge) {
+                                html += `<td>${lab.status_badge} ${lab.status}</td>`;
+                            } else {
+                                html += '<td>-</td>';
+                            }
+                        }
+
+                        // Capacity column (Admin only)
+                        if (userRole === 'admin') {
+                            html += `<td>${lab.capacity || '-'}</td>`;
+                        }
+
+                        // Available slots
+                        html += `<td>${slotsHtml}</td>`;
+
+                        // Slot-level details (Admin only)
+                        if (userRole === 'admin' && lab.slot_level_occupancy) {
+                            let slotDetailsHtml = '<div style="font-size: 11px;">';
+                            lab.slot_level_occupancy.forEach(slot => {
+                                const slotColor = slot.available > 0 ? '#10b981' : '#ef4444';
+                                slotDetailsHtml += `<div style="margin: 3px 0; padding: 4px; background: ${slotColor}20; border-left: 3px solid ${slotColor}; border-radius: 3px;">`;
+                                slotDetailsHtml += `<strong>${slot.time}</strong>: ${slot.occupancy_label}`;
+                                slotDetailsHtml += '</div>';
+                            });
+                            slotDetailsHtml += '</div>';
+                            html += `<td>${slotDetailsHtml}</td>`;
+                        }
+
+                        html += '</tr>';
                     });
 
                     html += '</tbody></table>';
                     container.innerHTML = html;
                 } else {
-                    container.innerHTML = '<div class="empty-state">No labs available. Contact an admin to create labs.</div>';
+                    let message = 'No labs available for ' + data.date;
+                    if (userRole === 'student' || userRole === 'faculty') {
+                        message += '. All labs are fully booked or no labs have availability slots configured.';
+                    } else if (userRole === 'lab_assistant') {
+                        message += '. You have no labs assigned to you. Contact an admin to get labs assigned.';
+                    } else {
+                        message += '. Contact an admin to create labs or check availability slots.';
+                    }
+                    container.innerHTML = `<div class="empty-state">${message}</div>`;
                 }
             } catch (error) {
                 console.error('Error loading available labs:', error);
-                document.getElementById('availableLabsContainer').innerHTML =
-                    `<div class="empty-state">Error loading labs: ${error.message}. Check console for details.</div>`;
+                errorDiv.textContent = 'Network error: ' + error.message;
+                errorDiv.style.display = 'block';
+                container.innerHTML = '<div class="empty-state">Error loading available labs. Please check if the server is running.</div>';
             }
-        }
-
-        // Close modal when clicking outside
+        }        // Close modal when clicking outside
         window.onclick = function(event) {
             const labModal = document.getElementById('labModal');
             const bookingModal = document.getElementById('bookingModal');
