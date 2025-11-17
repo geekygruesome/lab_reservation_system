@@ -504,7 +504,7 @@ def handle_me():
 # --- Booking Endpoints ---
 
 @app.route("/api/bookings", methods=["POST"])
-@require_auth
+@require_role("student", "faculty")
 def create_booking():
     """Create a new lab booking request."""
     data = request.get_json(silent=True)
@@ -528,6 +528,12 @@ def create_booking():
         datetime.datetime.strptime(end_time, "%H:%M")
     except ValueError:
         return jsonify({"message": "Invalid date or time format.", "success": False}), 400
+    # Basic time sanity
+    if time_to_minutes(start_time) is None or time_to_minutes(end_time) is None:
+        return jsonify({"message": "Invalid time provided.", "success": False}), 400
+
+    if time_to_minutes(start_time) >= time_to_minutes(end_time):
+        return jsonify({"message": "End time must be after start time.", "success": False}), 400
 
     conn = get_db_connection()
     try:
@@ -552,12 +558,64 @@ def create_booking():
         )
         conn.commit()
 
+        # Try to validate lab-specific constraints if the lab exists
+        cursor.execute("SELECT id, capacity FROM labs WHERE name = ?", (lab_name,))
+        lab = cursor.fetchone()
+        if lab:
+            lab_id = lab[0]
+            capacity = lab[1] or 1
+
+            # Check disabled labs for the selected date
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='disabled_labs'")
+            if cursor.fetchone():
+                cursor.execute("SELECT 1 FROM disabled_labs WHERE lab_id = ? AND disabled_date = ?", (lab_id, booking_date))
+                if cursor.fetchone():
+                    return jsonify({"message": "Lab is disabled for the selected date.", "success": False}), 400
+
+            # Check availability slots
+            day = get_day_of_week(booking_date)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='availability_slots'")
+            slots_exist = bool(cursor.fetchone()) and day
+
+            allowed_by_slot = True
+            if slots_exist:
+                cursor.execute(
+                    "SELECT start_time, end_time FROM availability_slots WHERE lab_id = ? AND day_of_week = ?",
+                    (lab_id, day)
+                )
+                slot_rows = cursor.fetchall()
+                # Only enforce slot constraints if there are configured slots for this lab/day
+                if slot_rows and len(slot_rows) > 0:
+                    allowed_by_slot = False
+                    for s in slot_rows:
+                        sstart = s['start_time'] if 'start_time' in s.keys() else s[0]
+                        send = s['end_time'] if 'end_time' in s.keys() else s[1]
+                        if time_to_minutes(sstart) <= time_to_minutes(start_time) and time_to_minutes(send) >= time_to_minutes(end_time):
+                            allowed_by_slot = True
+                            break
+
+            if not allowed_by_slot:
+                return jsonify({"message": "Requested time is outside configured availability slots.", "success": False}), 400
+
+            # Count approved bookings overlapping with requested time
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+            if cursor.fetchone():
+                cursor.execute(
+                    "SELECT COUNT(*) as cnt FROM bookings WHERE lab_name = ? AND booking_date = ? AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)",
+                    (lab_name, booking_date, start_time, end_time)
+                )
+                cnt_row = cursor.fetchone()
+                overlapping = cnt_row['cnt'] if 'cnt' in cnt_row.keys() else cnt_row[0]
+            else:
+                overlapping = 0
+
+            if overlapping >= capacity:
+                return jsonify({"message": "Slot is not available (capacity reached).", "success": False}), 409
+
+        # Passed all checks (or lab does not exist) - create booking
         created_at = datetime.datetime.now(timezone.utc).isoformat()
         cursor.execute(
-            """
-            INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'pending', ?)
-            """,
+            "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
             (college_id, lab_name, booking_date, start_time, end_time, created_at),
         )
         conn.commit()
@@ -576,6 +634,101 @@ def create_booking():
         print(f"Unexpected error in create_booking: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/bookings/check", methods=["GET"])
+@require_auth
+def check_booking_availability():
+    """Check if a given lab/time slot is available for booking."""
+    lab_name = request.args.get('lab_name')
+    booking_date = request.args.get('booking_date')
+    start_time = request.args.get('start_time')
+    end_time = request.args.get('end_time')
+
+    if not (lab_name and booking_date and start_time and end_time):
+        return jsonify({"message": "Missing required query parameters.", "success": False}), 400
+
+    # Validate date/time formats
+    try:
+        datetime.datetime.strptime(booking_date, "%Y-%m-%d")
+        datetime.datetime.strptime(start_time, "%H:%M")
+        datetime.datetime.strptime(end_time, "%H:%M")
+    except ValueError:
+        return jsonify({"message": "Invalid date or time format.", "success": False}), 400
+
+    # Basic time sanity
+    if time_to_minutes(start_time) >= time_to_minutes(end_time):
+        return jsonify({"available": False, "message": "End time must be after start time.", "success": True}), 200
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Find lab
+        cursor.execute("SELECT id, capacity FROM labs WHERE name = ?", (lab_name,))
+        lab = cursor.fetchone()
+        if not lab:
+            return jsonify({"available": False, "message": "Lab not found.", "success": True}), 200
+
+        lab_id = lab[0]
+        capacity = lab[1] or 1
+
+        # Check if lab disabled for date
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='disabled_labs'")
+        if cursor.fetchone():
+            cursor.execute("SELECT 1 FROM disabled_labs WHERE lab_id = ? AND disabled_date = ?", (lab_id, booking_date))
+            if cursor.fetchone():
+                return jsonify({"available": False, "message": "Lab is disabled for the selected date.", "success": True}), 200
+
+        # Find availability slots for that day
+        day = get_day_of_week(booking_date)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='availability_slots'")
+        slots_exist = bool(cursor.fetchone()) and day
+
+        allowed_by_slot = True
+        if slots_exist:
+            cursor.execute(
+                "SELECT start_time, end_time FROM availability_slots WHERE lab_id = ? AND day_of_week = ?",
+                (lab_id, day)
+            )
+            slot_rows = cursor.fetchall()
+            # If there are slots configured for this lab and day, the requested time must fall within at least one slot
+            if slot_rows and len(slot_rows) > 0:
+                allowed_by_slot = False
+                for s in slot_rows:
+                    sstart = s['start_time'] if 'start_time' in s.keys() else s[0]
+                    send = s['end_time'] if 'end_time' in s.keys() else s[1]
+                    if time_to_minutes(sstart) <= time_to_minutes(start_time) and time_to_minutes(send) >= time_to_minutes(end_time):
+                        allowed_by_slot = True
+                        break
+
+        if not allowed_by_slot:
+            return jsonify({"available": False, "message": "Requested time is outside configured availability slots.", "success": True}), 200
+
+        # Count approved bookings overlapping with requested time
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+        if cursor.fetchone():
+            cursor.execute(
+                "SELECT COUNT(*) as cnt FROM bookings WHERE lab_name = ? AND booking_date = ? AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)",
+                (lab_name, booking_date, start_time, end_time)
+            )
+            cnt_row = cursor.fetchone()
+            overlapping = cnt_row['cnt'] if 'cnt' in cnt_row.keys() else cnt_row[0]
+        else:
+            overlapping = 0
+
+        available = overlapping < capacity
+        message = "Slot is available." if available else "Slot is not available (capacity reached)."
+        return jsonify({"available": available, "message": message, "overlapping": overlapping, "capacity": capacity, "success": True}), 200
+    except sqlite3.Error as e:
+        print(f"Database error in check_booking_availability: {e}")
+        return jsonify({"message": "Database error occurred.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in check_booking_availability: {e}")
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
         if DATABASE != ":memory:":
@@ -1890,7 +2043,7 @@ def delete_lab(lab_id):
 
 
 @app.route("/api/labs/<int:lab_id>/equipment/<path:equipment_name>/availability", methods=["PUT"])
-@require_role("admin")
+@require_role("faculty", "lab_assistant")
 def update_equipment_availability(lab_id, equipment_name):
     """Update equipment availability for a specific lab and equipment (admin only)."""
     from urllib.parse import unquote
