@@ -498,6 +498,13 @@
         <!-- Available Labs Section -->
         <div class="bookings-section" id="availableLabsSection" style="display: none;">
             <h2>Available Labs</h2>
+            <div style="margin:12px 0; padding:10px; background:#fff; border:1px solid #e5e7eb; border-radius:6px;">
+                <label for="dashEquipmentSearch" style="margin-right:8px; font-weight:600;">Search by equipment:</label>
+                <input id="dashEquipmentSearch" type="text" placeholder="e.g., Arduino, Microscope" style="padding:6px 8px; width: 280px;" />
+                <button id="dashSearchBtn" style="padding:6px 10px; margin-left:8px; background:#3b82f6; color:#fff; border:none; border-radius:4px; cursor:pointer;">Search</button>
+                <button id="dashClearSearch" style="padding:6px 10px; margin-left:8px; background:#6b7280; color:#fff; border:none; border-radius:4px; cursor:pointer;">Clear</button>
+                <div id="dashSearchError" style="color:#dc2626; margin-top:8px; display:none;"></div>
+            </div>
             <div id="availableLabsContainer">
                 <div class="empty-state">Loading available labs...</div>
             </div>
@@ -1478,6 +1485,75 @@
                     `<div class="empty-state">Error loading labs: ${error.message}. Check console for details.</div>`;
             }
         }
+
+            // Search available labs by equipment from dashboard (student/faculty only)
+            async function dashSearchAvailableLabs() {
+                const kw = document.getElementById('dashEquipmentSearch').value.trim();
+                const errDiv = document.getElementById('dashSearchError');
+                errDiv.style.display = 'none';
+                errDiv.textContent = '';
+
+                if (!kw) {
+                    errDiv.textContent = 'Please enter an equipment keyword.';
+                    errDiv.style.display = 'block';
+                    return;
+                }
+
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    errDiv.textContent = 'Authentication required. Please log in.';
+                    errDiv.style.display = 'block';
+                    return;
+                }
+
+                try {
+                    const resp = await fetch(`/api/labs/search/equipment?equipment=${encodeURIComponent(kw)}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (!resp.ok) {
+                        errDiv.textContent = 'Search failed. Please try again.';
+                        errDiv.style.display = 'block';
+                        return;
+                    }
+
+                    const data = await resp.json();
+                    const container = document.getElementById('availableLabsContainer');
+
+                    if (!data.success || !data.labs || data.labs.length === 0) {
+                        container.innerHTML = '<div class="empty-state">No matching labs found</div>';
+                        return;
+                    }
+
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.labs.forEach(lab => {
+                        let equipmentDisplay = lab.equipment;
+                        try {
+                            const eq = JSON.parse(lab.equipment);
+                            if (Array.isArray(eq)) equipmentDisplay = eq.join(', ');
+                        } catch (e) { /* use raw string */ }
+
+                        html += `<tr><td>${lab.id}</td><td>${lab.name}</td><td>${lab.capacity}</td><td>${equipmentDisplay}</td><td>${lab.created_at || ''}</td></tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } catch (e) {
+                    console.error('Search failed', e);
+                    errDiv.textContent = 'Network error. Please try again.';
+                    errDiv.style.display = 'block';
+                }
+            }
+
+            document.getElementById('dashSearchBtn').addEventListener('click', dashSearchAvailableLabs);
+            document.getElementById('dashClearSearch').addEventListener('click', async () => {
+                document.getElementById('dashEquipmentSearch').value = '';
+                document.getElementById('dashSearchError').style.display = 'none';
+                await loadAvailableLabs();
+            });
 
         async function loadEquipmentStatus() {
             const token = localStorage.getItem('token');
