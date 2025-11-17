@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Available Labs</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f9fafb; }
+    .controls { margin-bottom: 20px; padding: 12px; background: #fff; border-radius: 6px; border: 1px solid #e5e7eb; }
+    .controls label { margin-right: 8px; }
+    .controls input { padding: 6px 8px; margin-right: 8px; }
+    .controls button { padding: 6px 12px; background: #3b82f6; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    .controls button:hover { background: #2563eb; }
+    #dateError { color: #dc2626; display: none; margin-top: 8px; padding: 8px; background: #fee2e2; border-radius: 4px; }
+    .summary { padding: 12px; background: #dbeafe; border-left: 4px solid #3b82f6; border-radius: 4px; margin-bottom: 16px; font-weight: 500; }
+    table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    th { background: #f3f4f6; padding: 12px; text-align: left; font-weight: 600; color: #1f2937; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 12px; border-bottom: 1px solid #e5e7eb; }
+    tr:hover { background: #f9fafb; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+    .badge-active { background: #d1fae5; color: #047857; }
+    .badge-disabled { background: #fee2e2; color: #991b1b; }
+    .badge-no-active { background: #fef3c7; color: #92400e; }
+    .slot-badge { display: inline-block; margin: 3px; padding: 5px 10px; background: #3b82f6; color: white; border-radius: 4px; font-size: 12px; }
+    .slot-available { background: #10b981; }
+    .slot-full { background: #ef4444; }
+    .empty-state { color: #6b7280; padding: 20px; text-align: center; background: #f9fafb; border-radius: 6px; }
+    .info { background: #e6f0ff; color: #1e40af; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
+    .students-info { font-size: 11px; margin-top: 4px; }
+    .students-item { margin: 4px 0; padding: 6px; background: #f3f4f6; border-radius: 4px; border-left: 3px solid #3b82f6; }
+  </style>
+</head>
+<body>
+  <h1>Available Labs</h1>
+  <div class="controls">
+    <label for="datePicker">Select Date to View Available Labs:</label>
+    <input id="datePicker" type="date" />
+    <button id="loadBtn">Check Availability</button>
+    <div id="dateError"></div>
+  </div>
+  <div id="meta" class="info" style="display:none"></div>
+  <div id="labsContainer"></div>
+
+<script>
+  const dp = document.getElementById('datePicker');
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  dp.value = today.toISOString().slice(0,10);
+  dp.min = dp.value;
+
+  document.getElementById('loadBtn').addEventListener('click', load);
+  dp.addEventListener('keypress', (e) => { if(e.key === 'Enter') load(); });
+
+  async function load(){
+    const date = dp.value;
+    const err = document.getElementById('dateError');
+    err.style.display = 'none';
+    err.textContent = '';
+
+    if(!date){
+      err.textContent = 'Please select a date.';
+      err.style.display = 'block';
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if(!token){
+      document.getElementById('labsContainer').innerHTML = '<div class="empty-state">Not authenticated. Please login.</div>';
+      return;
+    }
+
+    document.getElementById('labsContainer').innerHTML = '<div class="empty-state">Loading...</div>';
+
+    try{
+      const resp = await fetch(`/api/labs/available?date=${date}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if(!resp.ok){
+        const errd = await resp.json().catch(()=>({error:'Unknown'}));
+        err.textContent = errd.error || errd.message || 'Failed';
+        err.style.display = 'block';
+        document.getElementById('labsContainer').innerHTML = '';
+        return;
+      }
+
+      const data = await resp.json();
+      console.log('API Response:', data); // Debug: log full response
+      console.log('Diagnostic data:', data.diagnostic); // Debug: log diagnostic
+      document.getElementById('meta').style.display = 'block';
+      
+      // Get user role from localStorage
+      const user = localStorage.getItem('user');
+      const userData = user ? JSON.parse(user) : {};
+      const userRole = userData.role || 'student';
+      
+      // Build summary text
+      let metaText = `Available Labs for ${data.date} | Response: ${data.response_time_ms}ms`;
+      if (data.summary) {
+        metaText += ` | Total: ${data.summary.total_labs}, Active: ${data.summary.active}, No Lab Active: ${data.summary.no_lab_active || 0}, Disabled: ${data.summary.disabled}`;
+      }
+      document.getElementById('meta').textContent = metaText;
+
+      if(!data.labs || data.labs.length === 0){
+        let emptyMessage = `<div class="empty-state">`;
+        emptyMessage += `<h3 style="color: #dc2626; margin-bottom: 12px;">⚠️ No Labs Available</h3>`;
+        emptyMessage += `<p style="margin-bottom: 8px;"><strong>Date:</strong> ${data.date}</p>`;
+        
+        if(data.diagnostic){
+          emptyMessage += `<div style="background: #fef3c7; padding: 12px; border-radius: 6px; margin: 12px 0; border-left: 4px solid #f59e0b;">`;
+          emptyMessage += `<strong>📊 Diagnostic Info:</strong><br>`;
+          emptyMessage += `• Total labs in database: <strong>${data.diagnostic.total_labs_in_database}</strong><br>`;
+          emptyMessage += `• Labs with slots for ${data.diagnostic.day_of_week}: <strong>${data.diagnostic.labs_with_slots_for_day}</strong><br>`;
+          emptyMessage += `</div>`;
+        }
+        
+        emptyMessage += `<div style="background: #dbeafe; padding: 12px; border-radius: 6px; margin-top: 12px; border-left: 4px solid #3b82f6;">`;
+        emptyMessage += `<strong>💡 Why might this happen?</strong><br>`;
+        emptyMessage += `1. No labs have been created yet<br>`;
+        emptyMessage += `2. Labs exist but don't have availability slots configured for <strong>${data.date}</strong><br>`;
+        emptyMessage += `3. All labs are fully booked (but you should still see them)<br>`;
+        emptyMessage += `4. All labs are disabled<br>`;
+        emptyMessage += `</div>`;
+        
+        emptyMessage += `<div style="background: #d1fae5; padding: 12px; border-radius: 6px; margin-top: 12px; border-left: 4px solid #10b981;">`;
+        emptyMessage += `<strong>✅ What to do:</strong><br>`;
+        emptyMessage += `• Ask an admin to create labs and configure availability slots for ${data.date}<br>`;
+        emptyMessage += `• Try selecting a different date<br>`;
+        emptyMessage += `• Check if you're logged in as the correct role<br>`;
+        emptyMessage += `</div>`;
+        
+        emptyMessage += `</div>`;
+        document.getElementById('labsContainer').innerHTML = emptyMessage;
+        return;
+      }
+
+      // Build table with ALL columns (same as admin view)
+      let html = '<table>';
+      html += '<thead><tr>';
+      html += '<th>Lab ID</th>';
+      html += '<th>Lab Name</th>';
+      html += '<th>Occupancy</th>';
+      html += '<th>Status</th>';
+      html += '<th>Capacity</th>';
+      html += '<th>Time Slots</th>';
+      html += '<th>Available Slots</th>';
+      html += '<th>Students per Slot</th>';
+      html += '</tr></thead><tbody>';
+
+      for(const lab of data.labs){
+        html += '<tr>';
+        
+        // Lab ID
+        html += `<td>${lab.lab_id || '-'}</td>`;
+        
+        // Lab Name
+        html += `<td><strong>${lab.lab_name || '-'}</strong>`;
+        if (userRole === 'faculty' && lab.low_availability) {
+          html += `<br><span class="badge" style="background: #f59e0b; color: white; margin-top: 4px; display: inline-block;">${lab.availability_badge || ''}</span>`;
+        }
+        html += '</td>';
+        
+        // Occupancy
+        if (lab.occupancy) {
+          const occColor = lab.occupancy.free > 0 ? '#10b981' : '#ef4444';
+          html += `<td style="color: ${occColor}; font-weight: 600;">${lab.occupancy.occupancy_label || '-'}</td>`;
+        } else {
+          html += '<td>-</td>';
+        }
+        
+        // Status
+        if (lab.status && lab.status_badge) {
+          let badgeClass = 'badge-active';
+          if (lab.status === 'Disabled') badgeClass = 'badge-disabled';
+          else if (lab.status === 'No lab active') badgeClass = 'badge-no-active';
+          html += `<td><span class="badge ${badgeClass}">${lab.status_badge} ${lab.status}</span></td>`;
+        } else {
+          html += '<td>-</td>';
+        }
+        
+        // Capacity
+        html += `<td>${lab.capacity || '-'}</td>`;
+        
+        // Time Slots
+        if (lab.time_slots && lab.time_slots.length > 0) {
+          html += '<td>';
+          lab.time_slots.forEach(ts => {
+            html += `<span class="slot-badge">${ts}</span>`;
+          });
+          html += '</td>';
+        } else {
+          html += '<td><strong style="color:#ef4444;">No time slots configured</strong></td>';
+        }
+        
+        // Available Slots
+        if (lab.available_slots && lab.available_slots.length > 0) {
+          html += '<td>';
+          lab.available_slots.forEach(s => {
+            const isFull = s.includes('0 free') || s.includes('FULL');
+            const slotClass = isFull ? 'slot-full' : 'slot-available';
+            html += `<span class="slot-badge ${slotClass}">${s}</span>`;
+          });
+          html += '</td>';
+        } else {
+          html += '<td><strong style="color:#ef4444;">No slots available</strong></td>';
+        }
+        
+        // Students per Slot (ENROLLMENT COUNTER)
+        if (lab.students_per_slot && lab.students_per_slot.length > 0) {
+          html += '<td class="students-info">';
+          lab.students_per_slot.forEach(slot => {
+            const slotColor = slot.available > 0 ? '#10b981' : '#ef4444';
+            html += `<div class="students-item" style="border-left-color: ${slotColor};">`;
+            html += `<strong>${slot.time || slot.start_time + '-' + slot.end_time}</strong>: `;
+            html += `<span style="color: ${slotColor}; font-weight: 600;">${slot.students_enrolled || 0} enrolled</span>`;
+            html += ` / ${slot.capacity || 0} capacity`;
+            html += ` (${slot.available || 0} available)`;
+            html += '</div>';
+          });
+          html += '</td>';
+        } else {
+          html += '<td>-</td>';
+        }
+        
+        html += '</tr>';
+      }
+      
+      html += '</tbody></table>';
+      document.getElementById('labsContainer').innerHTML = html;
+    }catch(e){
+      console.error(e);
+      document.getElementById('labsContainer').innerHTML = '<div class="empty-state">Network error. Please try again.</div>';
+    }
+  }
+
+  // initial load
+  load();
+</script>
+</body>
+</html>

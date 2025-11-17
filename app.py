@@ -321,6 +321,31 @@ def serve_dashboard():
     return send_from_directory(BASE_DIR, "dashboard.html")
 
 
+@app.route("/available_labs.html")
+def serve_available_labs():
+    """Serve available_labs.html for students."""
+    response = send_from_directory(BASE_DIR, "available_labs.html")
+    # Prevent caching to ensure users see latest version
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+
+@app.route("/admin_available_labs.html")
+@require_role("admin")
+def serve_admin_available_labs():
+    """Serve admin_available_labs.html for admins (requires auth via decorator)."""
+    return send_from_directory(BASE_DIR, "admin_available_labs.html")
+
+
+@app.route("/lab_assistant_labs.html")
+@require_role("lab_assistant")
+def serve_lab_assistant_labs():
+    """Serve lab_assistant_labs.html for lab assistants (requires auth via decorator)."""
+    return send_from_directory(BASE_DIR, "lab_assistant_labs.html")
+
+
 # --- API Endpoint ---
 
 @app.route("/api/register", methods=["POST"])
