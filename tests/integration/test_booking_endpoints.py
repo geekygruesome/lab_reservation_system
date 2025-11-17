@@ -4,7 +4,7 @@ Tests the interaction between booking creation, modification, and cancellation.
 """
 import sqlite3
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import app as app_module
 
 
@@ -15,7 +15,7 @@ def client(monkeypatch):
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-
+    
     # Create all required tables
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -83,7 +83,7 @@ def test_create_modify_cancel_booking_flow(client):
     )
     login_resp = client.post("/api/login", json={"college_id": "FLOW1", "password": "Flow123!@#"})
     token = login_resp.get_json()["token"]
-
+    
     # Create lab
     conn = app_module.get_db_connection()
     cursor = conn.cursor()
@@ -92,7 +92,7 @@ def test_create_modify_cancel_booking_flow(client):
         ("Flow Lab", 10, "[]", datetime.now().isoformat()),
     )
     conn.commit()
-
+    
     # Create booking
     future_date = (datetime.now().date() + timedelta(days=1)).strftime("%Y-%m-%d")
     create_resp = client.post(
@@ -107,7 +107,7 @@ def test_create_modify_cancel_booking_flow(client):
     )
     assert create_resp.status_code == 201
     booking_id = create_resp.get_json()["booking_id"]
-
+    
     # Modify booking
     modify_resp = client.put(
         f"/api/bookings/{booking_id}",
@@ -121,7 +121,7 @@ def test_create_modify_cancel_booking_flow(client):
     )
     assert modify_resp.status_code == 200
     assert modify_resp.get_json()["success"] is True
-
+    
     # Verify modification
     get_resp = client.get("/api/bookings", headers={"Authorization": f"Bearer {token}"})
     bookings = get_resp.get_json()["bookings"]
@@ -129,7 +129,7 @@ def test_create_modify_cancel_booking_flow(client):
     assert modified_booking is not None
     assert modified_booking["start_time"] == "14:00"
     assert modified_booking["end_time"] == "16:00"
-
+    
     # Cancel booking
     cancel_resp = client.delete(
         f"/api/bookings/{booking_id}",
@@ -137,7 +137,7 @@ def test_create_modify_cancel_booking_flow(client):
     )
     assert cancel_resp.status_code == 200
     assert cancel_resp.get_json()["success"] is True
-
+    
     # Verify cancellation
     get_resp2 = client.get("/api/bookings", headers={"Authorization": f"Bearer {token}"})
     bookings2 = get_resp2.get_json()["bookings"]
@@ -168,13 +168,13 @@ def test_student_cannot_modify_others_booking(client):
             "role": "student",
         },
     )
-
+    
     login1 = client.post("/api/login", json={"college_id": "STU1_MOD", "password": "Student123!@#"})
     token1 = login1.get_json()["token"]
-
+    
     login2 = client.post("/api/login", json={"college_id": "STU2_MOD", "password": "Student123!@#"})
     token2 = login2.get_json()["token"]
-
+    
     # Create lab and availability
     conn = app_module.get_db_connection()
     cursor = conn.cursor()
@@ -190,7 +190,7 @@ def test_student_cannot_modify_others_booking(client):
         (lab_id, day_of_week, "09:00", "11:00"),
     )
     conn.commit()
-
+    
     # Student 1 creates booking
     booking_resp = client.post(
         "/api/bookings",
@@ -203,7 +203,7 @@ def test_student_cannot_modify_others_booking(client):
         headers={"Authorization": f"Bearer {token1}"},
     )
     booking_id = booking_resp.get_json()["booking_id"]
-
+    
     # Student 2 tries to modify Student 1's booking (should fail)
     modify_resp = client.put(
         f"/api/bookings/{booking_id}",
@@ -233,7 +233,7 @@ def test_available_slots_endpoint_returns_correct_slots(client):
     )
     login_resp = client.post("/api/login", json={"college_id": "SLOTS1", "password": "Slots123!@#"})
     token = login_resp.get_json()["token"]
-
+    
     # Create lab and availability slots
     conn = app_module.get_db_connection()
     cursor = conn.cursor()
@@ -253,7 +253,7 @@ def test_available_slots_endpoint_returns_correct_slots(client):
         (lab_id, day_of_week, "14:00", "16:00"),
     )
     conn.commit()
-
+    
     # Get available slots
     slots_resp = client.get(
         f"/api/labs/Slots Lab/available-slots?date={future_date}",
@@ -265,3 +265,4 @@ def test_available_slots_endpoint_returns_correct_slots(client):
     assert len(data["available_slots"]) == 2
     assert any(slot["start_time"] == "09:00" and slot["end_time"] == "11:00" for slot in data["available_slots"])
     assert any(slot["start_time"] == "14:00" and slot["end_time"] == "16:00" for slot in data["available_slots"])
+

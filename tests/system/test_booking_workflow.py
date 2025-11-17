@@ -4,7 +4,7 @@ Tests the entire user journey from booking creation to modification and cancella
 """
 import sqlite3
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import app as app_module
 
 
@@ -289,3 +289,5 @@ def test_faculty_admin_modify_reflects_in_available_labs(client):
     assert faculty_lab2 is not None
     assert "14:00-16:00" in faculty_lab2["time_slots"]
     assert "09:00-11:00" not in faculty_lab2["time_slots"]
+
+

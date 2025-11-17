@@ -575,14 +575,14 @@ def create_booking():
                         (lab_id, day_of_week)
                     )
                     availability_slots = cursor.fetchall()
-
+                    
                     # Check if time matches any availability slot
                     slot_found = False
                     for slot in availability_slots:
                         if slots_overlap(slot[0], slot[1], start_time, end_time):
                             slot_found = True
                             break
-
+                    
                     # If not in availability slots, check approved bookings
                     if not slot_found:
                         cursor.execute(
@@ -598,13 +598,10 @@ def create_booking():
                             if booking[0] == start_time and booking[1] == end_time:
                                 slot_found = True
                                 break
-
+                    
                     if not slot_found:
                         return jsonify({
-                            "message": (
-                                "Students can only book from available time slots. "
-                                "Please select a time slot from the available options."
-                            ),
+                            "message": "Students can only book from available time slots. Please select a time slot from the available options.",
                             "success": False
                         }), 400
 
@@ -896,15 +893,15 @@ def get_available_slots_for_lab(lab_name):
         for slot in availability_slots:
             slot_start = slot[0]
             slot_end = slot[1]
-
+            
             # Count overlapping approved bookings
             overlapping_count = 0
             for booking in approved_bookings:
                 if slots_overlap(slot_start, slot_end, booking[0], booking[1]):
                     overlapping_count += 1
-
+            
             available_count = max(0, capacity - overlapping_count)
-
+            
             if available_count > 0:
                 available_slots.append({
                     "start_time": slot_start,
@@ -1066,14 +1063,14 @@ def modify_booking(booking_id):
                         (lab_id, day_of_week)
                     )
                     availability_slots = cursor.fetchall()
-
+                    
                     # Check if time matches any availability slot
                     slot_found = False
                     for slot in availability_slots:
                         if slots_overlap(slot[0], slot[1], new_start_time, new_end_time):
                             slot_found = True
                             break
-
+                    
                     # If not in availability slots, check approved bookings
                     if not slot_found:
                         cursor.execute(
@@ -1090,13 +1087,10 @@ def modify_booking(booking_id):
                             if approved_booking[0] == new_start_time and approved_booking[1] == new_end_time:
                                 slot_found = True
                                 break
-
+                    
                     if not slot_found:
                         return jsonify({
-                            "message": (
-                                "Students can only book from available time slots. "
-                                "Please select a time slot from the available options."
-                            ),
+                            "message": "Students can only book from available time slots. Please select a time slot from the available options.",
                             "success": False
                         }), 400
 
@@ -1104,7 +1098,7 @@ def modify_booking(booking_id):
         updated_at = datetime.datetime.now(timezone.utc).isoformat()
         cursor.execute(
             """
-            UPDATE bookings
+            UPDATE bookings 
             SET lab_name = ?, booking_date = ?, start_time = ?, end_time = ?, updated_at = ?
             WHERE id = ?
             """,
@@ -1525,6 +1519,7 @@ def get_available_labs():
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
         user_role = payload.get('role')
+        user_college_id = payload.get('college_id')
     except jwt.InvalidTokenError:
         return jsonify({"error": "Invalid token"}), 401
 
@@ -1544,7 +1539,7 @@ def get_available_labs():
 
         # Get day of week for availability slots
         day_of_week = get_day_of_week(date_str)
-
+        
         # Get all labs
         cursor.execute("SELECT id, name, capacity, equipment FROM labs ORDER BY name ASC")
         labs_rows = cursor.fetchall()
@@ -1622,13 +1617,14 @@ def get_available_labs():
 
             # Get availability slots for this lab
             lab_slots = slots_by_lab.get(lab_id, [])
-
+            
             # Get bookings for this lab
             lab_bookings = bookings_by_lab.get(lab_name, [])
-
+            
             # Calculate occupancy based on slots and bookings
             total_slots = len(lab_slots)
-
+            total_possible = total_slots * capacity if total_slots > 0 else 0
+            
             # Count how many slots are fully booked (capacity reached)
             booked_slots = 0
             if total_slots > 0:
@@ -1643,10 +1639,10 @@ def get_available_labs():
                     # If bookings reach or exceed capacity, slot is fully booked
                     if overlapping_bookings >= capacity:
                         booked_slots += 1
-
+            
             # Free slots = total slots - fully booked slots
             total_free = max(0, total_slots - booked_slots)
-
+            
             # Determine status: Active if has slots or bookings, Not Available otherwise
             status = "Active" if (lab_slots or lab_bookings) else "Not Available"
             status_badge = "active" if (lab_slots or lab_bookings) else "inactive"
@@ -1654,7 +1650,7 @@ def get_available_labs():
             # Get unique time slots from approved bookings or availability slots
             time_slots = []
             slot_details = {}  # For admin: track student count per slot
-
+            
             # If we have availability slots, use those; otherwise use booking slots
             if lab_slots:
                 time_slots = [f"{s['start_time']}-{s['end_time']}" for s in lab_slots]
@@ -1663,7 +1659,7 @@ def get_available_labs():
                     slot_key = f"{booking['start_time']}-{booking['end_time']}"
                     if slot_key not in time_slots:
                         time_slots.append(slot_key)
-
+                
                 # For admin: count students per slot
                 if is_admin:
                     for booking in lab_bookings:

@@ -4,7 +4,7 @@ Tests the core business logic for modifying and canceling bookings.
 """
 import sqlite3
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import app as app_module
 
 
@@ -238,3 +238,5 @@ def test_cancel_booking_removes_from_database(client):
     # Verify booking is deleted
     cursor.execute("SELECT id FROM bookings WHERE id = ?", (booking_id,))
     assert cursor.fetchone() is None
+
+

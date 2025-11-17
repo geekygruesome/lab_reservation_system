@@ -9,6 +9,7 @@ from app import app
 import app as app_module
 
 
+
 @pytest.fixture
 def client(monkeypatch):
     app.config["TESTING"] = True
