@@ -113,6 +113,40 @@
         .admin-only.visible {
             display: block !important;
         }
+        .student-only {
+            display: none !important;
+        }
+        .student-only.visible {
+            display: block !important;
+        }
+        .student-faculty-only {
+            display: none !important;
+        }
+        .student-faculty-only.visible {
+            display: block !important;
+        }
+        /* Toast notifications */
+        #toastContainer {
+            position: fixed;
+            right: 20px;
+            top: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .toast {
+            background: #111827;
+            color: white;
+            padding: 10px 14px;
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+            min-width: 220px;
+            font-weight: 600;
+            opacity: 0.98;
+        }
+        .toast.success { background: #10b981; }
+        .toast.error { background: #ef4444; }
         .faculty-lab-assistant-only {
             display: none !important;
         }
@@ -236,6 +270,64 @@
         .close:focus {
             color: #000;
         }
+        .logout-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+        }
+        .logout-modal-content {
+            background: white;
+            margin: 15% auto;
+            padding: 30px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 350px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        .logout-modal-content h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .logout-modal-content p {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        .logout-modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .logout-modal-buttons button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        .logout-confirm-btn {
+            background: #dc3545;
+            color: white;
+        }
+        .logout-confirm-btn:hover {
+            background: #c82333;
+        }
+        .logout-cancel-btn {
+            background: #6c757d;
+            color: white;
+        }
+        .logout-cancel-btn:hover {
+            background: #5a6268;
+        }
         .btn-edit {
             background: #007bff;
             color: white;
@@ -267,9 +359,22 @@
         <div class="user-info">
             <span id="userName">User</span>
             <div class="role-badge" id="roleDisplay">Student</div>
-            <button onclick="logout()">Logout</button>
+            <button onclick="showLogoutConfirmation()">Logout</button>
         </div>
     </header>
+    <div id="toastContainer"></div>
+
+    <!-- Logout Confirmation Modal -->
+    <div id="logoutConfirmModal" class="logout-modal">
+        <div class="logout-modal-content">
+            <h2>Confirm Logout</h2>
+            <p>Are you sure you want to log out?</p>
+            <div class="logout-modal-buttons">
+                <button class="logout-confirm-btn" onclick="confirmLogout()">Confirm</button>
+                <button class="logout-cancel-btn" onclick="cancelLogout()">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <div class="container">
         <div id="errorMessage" class="error" style="display: none;"></div>
@@ -280,15 +385,15 @@
         </div>
 
         <div class="dashboard-grid">
-            <div class="card" onclick="showBookingModal()">
+            <div class="card student-faculty-only" onclick="showBookingModal()">
                 <div class="card-icon">📅</div>
-                <h3>Reserve Lab</h3>
+                <h3 class="student-faculty-only">Reserve Lab</h3>
                 <p>Book a lab slot for your work</p>
             </div>
 
-            <div class="card" onclick="showMyBookings()">
+            <div class="card student-faculty-only" onclick="showMyBookings()">
                 <div class="card-icon">📋</div>
-                <h3>My Reservations</h3>
+                <h3 class="student-faculty-only">My Reservations</h3>
                 <p>View and manage your bookings</p>
             </div>
 
@@ -375,10 +480,24 @@
                         <input type="time" id="bookingEndTime" name="end_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                     </div>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" id="checkAvailabilityBtn" onclick="checkAvailability()" style="background: #0ea5e9; color: white; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer;">Check Availability</button>
                         <button type="button" onclick="closeBookingModal()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Cancel</button>
                         <button type="submit" class="btn-approve">Create Booking</button>
                     </div>
+                    <div id="availabilityResult" style="margin-top:10px; display:none; padding:10px; border-radius:6px; font-weight:600;"></div>
                 </form>
+            </div>
+        </div>
+
+        <!-- Booking Confirmation Modal (replaces alert on successful booking) -->
+        <div id="bookingConfirmModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeBookingConfirmModal()">&times;</span>
+                <h2>Booking Confirmed</h2>
+                <div id="bookingConfirmContent" style="margin-top:12px; font-size:14px;"></div>
+                <div style="margin-top:18px; text-align:right;">
+                    <button onclick="closeBookingConfirmModal()" style="background:#0ea5e9; color:white; border:none; padding:8px 14px; border-radius:6px;">Close</button>
+                </div>
             </div>
         </div>
 
@@ -443,27 +562,46 @@
                 document.getElementById('userName').textContent = userData.name || 'User';
                 document.getElementById('roleDisplay').textContent = userData.role || 'Student';
 
-                // Show admin-only cards for admins
-                if (userData.role === 'admin') {
-                    document.querySelectorAll('.admin-only').forEach(element => {
-                        element.classList.add('visible');
-                    });
-                    document.getElementById('adminBookingsSection').style.display = 'block';
-                    document.getElementById('welcomeMessage').textContent =
-                        `Welcome, ${userData.name}! You have administrative access. Click "Manage Labs" to create labs.`;
-                    loadPendingBookings();
-                } else {
-                    document.getElementById('userBookingsSection').style.display = 'block';
-                    document.getElementById('welcomeMessage').textContent =
-                        `Welcome, ${userData.name}! Select an option to continue.`;
-                    loadUserBookings();
-                }
+                // Clear role-based visibility first
+                document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('visible'));
+                document.querySelectorAll('.faculty-lab-assistant-only').forEach(el => el.classList.remove('visible'));
+                document.querySelectorAll('.student-only').forEach(el => el.classList.remove('visible'));
+                // Hide sections
+                document.getElementById('adminBookingsSection').style.display = 'none';
+                document.getElementById('userBookingsSection').style.display = 'none';
+                document.getElementById('labManagementSection').style.display = 'none';
+                document.getElementById('availableLabsSection').style.display = 'none';
+                document.getElementById('equipmentStatusSection').style.display = 'none';
 
-                // Show faculty/lab assistant-only cards
-                if (userData.role === 'faculty' || userData.role === 'lab_assistant') {
-                    document.querySelectorAll('.faculty-lab-assistant-only').forEach(element => {
-                        element.classList.add('visible');
-                    });
+                if (userData.role === 'admin') {
+                    document.querySelectorAll('.admin-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('adminBookingsSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! You have administrative access. Click "Manage Labs" to create labs.`;
+                    loadPendingBookings();
+                } else if (userData.role === 'student') {
+                    // Students see booking cards and their bookings
+                    document.querySelectorAll('.student-only').forEach(element => element.classList.add('visible'));
+                    document.querySelectorAll('.student-faculty-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('userBookingsSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! Select an option to continue.`;
+                    loadUserBookings();
+                } else if (userData.role === 'faculty') {
+                    // Faculty see booking cards and can make reservations like students, plus equipment management
+                    document.querySelectorAll('.student-faculty-only').forEach(element => element.classList.add('visible'));
+                    document.querySelectorAll('.faculty-lab-assistant-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('userBookingsSection').style.display = 'block';
+                    document.getElementById('equipmentStatusSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! You can make reservations and manage equipment.`;
+                    loadUserBookings();
+                    loadEquipmentStatus();
+                } else if (userData.role === 'lab_assistant') {
+                    // Lab assistant see equipment management
+                    document.querySelectorAll('.faculty-lab-assistant-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('equipmentStatusSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! Use the Equipment Status view to manage equipment.`;
+                    loadEquipmentStatus();
+                } else {
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! Select an option to continue.`;
                 }
 
                 // Verify token with backend
@@ -491,11 +629,112 @@
             }
         }
 
-        // Logout function
-        function logout() {
+        // Logout functions
+        function showLogoutConfirmation() {
+            document.getElementById('logoutConfirmModal').style.display = 'block';
+        }
+
+        function confirmLogout() {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = 'login.html';
+        }
+
+        function cancelLogout() {
+            document.getElementById('logoutConfirmModal').style.display = 'none';
+        }
+
+        // Close logout modal when clicking outside
+        window.addEventListener('click', function(event) {
+            const modal = document.getElementById('logoutConfirmModal');
+            if (event.target === modal) {
+                cancelLogout();
+            }
+        });
+
+        // UI Helpers: Toasts and booking confirmation
+        function showToast(message, type='success') {
+            try {
+                const container = document.getElementById('toastContainer');
+                const t = document.createElement('div');
+                t.className = `toast ${type === 'error' ? 'error' : 'success'}`;
+                t.textContent = message;
+                container.appendChild(t);
+                setTimeout(() => {
+                    t.style.transition = 'opacity 300ms ease';
+                    t.style.opacity = '0';
+                    setTimeout(() => container.removeChild(t), 350);
+                }, 3500);
+            } catch (e) {
+                console.warn('Toast failed', e);
+            }
+        }
+
+        function showBookingConfirmation(details) {
+            const box = document.getElementById('bookingConfirmContent');
+            box.innerHTML = `
+                <div><strong>Lab:</strong> ${details.lab_name}</div>
+                <div><strong>Date:</strong> ${details.booking_date}</div>
+                <div><strong>Start:</strong> ${details.start_time}</div>
+                <div><strong>End:</strong> ${details.end_time}</div>
+                <div style="margin-top:8px;"><strong>Booking ID:</strong> ${details.booking_id}</div>
+                <div style="margin-top:8px; color:#374151; font-size:13px;">${details.message || ''}</div>
+            `;
+            document.getElementById('bookingConfirmModal').style.display = 'block';
+        }
+
+        function closeBookingConfirmModal() {
+            document.getElementById('bookingConfirmModal').style.display = 'none';
+            // Refresh user's bookings to reflect new booking
+            loadUserBookings();
+        }
+
+        async function checkAvailability() {
+            const token = localStorage.getItem('token');
+            const labName = document.getElementById('bookingLabName').value.trim();
+            const bookingDate = document.getElementById('bookingDate').value;
+            const startTime = document.getElementById('bookingStartTime').value;
+            const endTime = document.getElementById('bookingEndTime').value;
+            const resDiv = document.getElementById('availabilityResult');
+            resDiv.style.display = 'none';
+
+            if (!labName || !bookingDate || !startTime || !endTime) {
+                resDiv.style.display = 'block';
+                resDiv.style.background = '#fff3f2';
+                resDiv.style.color = '#9f1239';
+                resDiv.textContent = 'Please fill all fields to check availability.';
+                return;
+            }
+
+            try {
+                const url = `/api/bookings/check?lab_name=${encodeURIComponent(labName)}&booking_date=${encodeURIComponent(bookingDate)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
+                const resp = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await resp.json();
+                resDiv.style.display = 'block';
+                if (resp.ok && data && data.success) {
+                    if (data.available) {
+                        resDiv.style.background = '#d1fae5';
+                        resDiv.style.color = '#065f46';
+                        resDiv.textContent = '✅ Slot is available';
+                    } else {
+                        resDiv.style.background = '#fee2e2';
+                        resDiv.style.color = '#7f1d1d';
+                        resDiv.textContent = `❌ Not available: ${data.message || 'Capacity reached or outside slot'}`;
+                    }
+                } else {
+                    resDiv.style.background = '#fee2e2';
+                    resDiv.style.color = '#7f1d1d';
+                    resDiv.textContent = data.message || 'Failed to check availability';
+                }
+            } catch (e) {
+                console.error('Availability check failed', e);
+                resDiv.style.display = 'block';
+                resDiv.style.background = '#fee2e2';
+                resDiv.style.color = '#7f1d1d';
+                resDiv.textContent = 'Network error while checking availability';
+            }
         }
 
         // Load pending bookings for admin
@@ -616,15 +855,15 @@
                 });
 
                 if (response.ok) {
-                    alert('Booking approved successfully!');
+                    showToast('Booking approved successfully!', 'success');
                     loadPendingBookings();
                 } else {
-                    const data = await response.json();
-                    alert(data.message || 'Failed to approve booking');
+                    const data = await response.json().catch(()=>({message:'Failed'}));
+                    showToast(data.message || 'Failed to approve booking', 'error');
                 }
             } catch (error) {
                 console.error('Error approving booking:', error);
-                alert('Error approving booking');
+                showToast('Error approving booking', 'error');
             }
         }
 
@@ -644,15 +883,15 @@
                 });
 
                 if (response.ok) {
-                    alert('Booking rejected successfully!');
+                    showToast('Booking rejected successfully!', 'success');
                     loadPendingBookings();
                 } else {
-                    const data = await response.json();
-                    alert(data.message || 'Failed to reject booking');
+                    const data = await response.json().catch(()=>({message:'Failed'}));
+                    showToast(data.message || 'Failed to reject booking', 'error');
                 }
             } catch (error) {
                 console.error('Error rejecting booking:', error);
-                alert('Error rejecting booking');
+                showToast('Error rejecting booking', 'error');
             }
         }
 
@@ -709,7 +948,7 @@
 
                 if (data && data.success && data.labs && data.labs.length > 0) {
                     let html = '<table class="bookings-table"><thead><tr>';
-                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Equipment Availability</th><th>Created At</th><th>Actions</th>';
+                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th><th>Actions</th>';
                     html += '</tr></thead><tbody>';
 
                     data.labs.forEach(lab => {
@@ -731,33 +970,6 @@
                             }
                         }
                         
-                        // Build equipment availability display
-                        let equipmentAvailabilityHtml = '';
-                        if (lab.equipment_availability && lab.equipment_availability.length > 0) {
-                            equipmentAvailabilityHtml = '<div style="display: flex; flex-direction: column; gap: 4px;">';
-                            lab.equipment_availability.forEach(eq => {
-                                const isAvailable = eq.is_available === 'yes';
-                                const statusColor = isAvailable ? '#28a745' : '#dc3545';
-                                const statusText = isAvailable ? 'Yes' : 'No';
-                                const safeEqName = eq.equipment_name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                                equipmentAvailabilityHtml += `
-                                    <div style="display: flex; align-items: center; gap: 8px; padding: 4px;">
-                                        <span style="font-weight: 600;">${eq.equipment_name}:</span>
-                                        <button 
-                                            class="btn-toggle" 
-                                            onclick="toggleEquipmentAvailability(${lab.id}, '${safeEqName}', ${!isAvailable})"
-                                            style="background: ${statusColor}; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;"
-                                        >
-                                            ${statusText}
-                                        </button>
-                                    </div>
-                                `;
-                            });
-                            equipmentAvailabilityHtml += '</div>';
-                        } else {
-                            equipmentAvailabilityHtml = '<span style="color: #999;">No equipment configured</span>';
-                        }
-                        
                         const safeName = lab.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
                         
                         html += `<tr>
@@ -765,7 +977,6 @@
                             <td>${lab.name}</td>
                             <td>${lab.capacity}</td>
                             <td>${equipmentDisplay}</td>
-                            <td>${equipmentAvailabilityHtml}</td>
                             <td>${new Date(lab.created_at).toLocaleDateString()}</td>
                             <td>
                                 <button class="btn-edit" onclick="editLab(${lab.id})">Edit</button>
@@ -903,7 +1114,7 @@
                 console.log('Save lab response:', response.status, data);
 
                 if (response.ok && data.success) {
-                    alert(data.message || 'Lab saved successfully!');
+                    showToast(data.message || 'Lab saved successfully!', 'success');
                     closeLabModal();
                     // Refresh the lab list
                     loadLabs();
@@ -913,18 +1124,18 @@
                         showBookingModal();
                     }
                 } else {
-                    alert(data.message || 'Failed to save lab');
+                    showToast(data.message || 'Failed to save lab', 'error');
                 }
             } catch (error) {
                 console.error('Error saving lab:', error);
-                alert('Error saving lab: ' + error.message);
+                showToast('Error saving lab: ' + error.message, 'error');
             }
         }
 
         async function toggleEquipmentAvailability(labId, equipmentName, newStatus) {
             const token = localStorage.getItem('token');
             if (!token) {
-                alert('Please login again');
+                showToast('Please login again', 'error');
                 window.location.href = '/login.html';
                 return;
             }
@@ -947,16 +1158,32 @@
 
                 const data = await response.json();
                 if (response.ok && data.success) {
-                    // Refresh the lab list to show updated status
-                    loadLabs();
+                    // Update the button in-place for immediate feedback
+                        // Update the button in-place for immediate feedback (for equipment status page)
+                    try {
+                        const btnId = `equip-btn-${labId}-${equipmentName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                        const btn = document.getElementById(btnId);
+                    if (btn) {
+                        const nowText = isAvailable === 'yes' ? 'Available' : 'Not Available';
+                        const bg = isAvailable === 'yes' ? '#28a745' : '#dc3545';
+                        btn.textContent = nowText;
+                        btn.style.background = bg;
+                    }
+                    } catch (e) {
+                            // fallback to reload
+                            loadEquipmentStatus();
+                    }
+                    showToast(data.message || 'Equipment availability updated', 'success');
                 } else {
-                    alert(data.message || 'Failed to update equipment availability');
+                    showToast(data.message || 'Failed to update equipment availability', 'error');
                 }
             } catch (error) {
                 console.error('Error updating equipment availability:', error);
-                alert('Error updating equipment availability: ' + error.message);
+                showToast('Error updating equipment availability: ' + error.message, 'error');
             }
         }
+
+            
 
         async function deleteLab(labId, labName) {
             if (!confirm(`Are you sure you want to delete lab "${labName}"? This will also delete all associated availability slots.`)) {
@@ -976,14 +1203,14 @@
                 console.log('Delete lab response:', response.status, data);
 
                 if (response.ok && data.success) {
-                    alert(data.message || 'Lab deleted successfully!');
+                    showToast(data.message || 'Lab deleted successfully!', 'success');
                     loadLabs();
                 } else {
-                    alert(data.message || 'Failed to delete lab');
+                    showToast(data.message || 'Failed to delete lab', 'error');
                 }
             } catch (error) {
                 console.error('Error deleting lab:', error);
-                alert('Error deleting lab: ' + error.message);
+                showToast('Error deleting lab: ' + error.message, 'error');
             }
         }
 
@@ -1061,7 +1288,7 @@
             event.preventDefault();
             const token = localStorage.getItem('token');
             if (!token) {
-                alert('Not authenticated. Please login again.');
+                showToast('Not authenticated. Please login again.', 'error');
                 return;
             }
 
@@ -1097,15 +1324,22 @@
                 console.log('Create booking response:', response.status, data);
 
                 if (response.ok && data.success) {
-                    alert(data.message || 'Booking created successfully!');
+                    // Show styled confirmation with booking details
+                    showBookingConfirmation({
+                        lab_name: labName,
+                        booking_date: bookingDate,
+                        start_time: startTime,
+                        end_time: endTime,
+                        booking_id: data.booking_id,
+                        message: data.message || 'Booking created successfully!'
+                    });
                     closeBookingModal();
-                    loadUserBookings();
                 } else {
-                    alert(data.message || 'Failed to create booking');
+                    showToast(data.message || 'Failed to create booking', 'error');
                 }
             } catch (error) {
                 console.error('Error creating booking:', error);
-                alert('Error creating booking: ' + error.message);
+                showToast('Error creating booking: ' + error.message, 'error');
             }
         }
 
@@ -1241,9 +1475,18 @@
                 console.log('Equipment status data:', data);
                 const container = document.getElementById('equipmentStatusContainer');
 
+                // Determine if current user has permission to edit equipment
+                let userRole = 'student';
+                try {
+                    const userRaw = localStorage.getItem('user');
+                    const u = userRaw ? JSON.parse(userRaw) : null;
+                    userRole = u && u.role ? u.role : 'student';
+                } catch (e) { userRole = 'student'; }
+                const canEdit = (userRole === 'faculty' || userRole === 'lab_assistant');
+
                 if (data && data.success && data.labs && data.labs.length > 0) {
                     let html = '<table class="bookings-table"><thead><tr>';
-                    html += '<th>Lab Name</th><th>Equipment</th><th>Equipment Status</th><th>Overall Status</th>';
+                    html += '<th>Lab Name</th><th>Equipment</th><th>Equipment Status</th>';
                     html += '</tr></thead><tbody>';
 
                     data.labs.forEach(lab => {
@@ -1271,12 +1514,11 @@
                                 if (!isAvailable) allAvailable = false;
                                 const statusColor = isAvailable ? '#28a745' : '#dc3545';
                                 const statusText = isAvailable ? 'Available' : 'Not Available';
+                                const btnId = `equip-btn-${lab.id}-${eq.equipment_name.replace(/[^a-zA-Z0-9]/g, '_')}`;
                                 equipmentAvailabilityHtml += `
                                     <div style="display: flex; align-items: center; gap: 8px; padding: 6px; background: #f8f9fa; border-radius: 4px;">
                                         <span style="font-weight: 600; min-width: 150px;">${eq.equipment_name}:</span>
-                                        <span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">
-                                            ${statusText}
-                                        </span>
+                                        ${canEdit ? `<button id="${btnId}" onclick="toggleEquipmentAvailability(${lab.id}, '${eq.equipment_name.replace(/'/g, "\\'").replace(/\"/g, '&quot;')}', ${!isAvailable})" style="background:${statusColor}; color:white; padding:6px 12px; border-radius:6px; border:none; font-weight:700; cursor:pointer;">${statusText}</button>` : `<span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">${statusText}</span>`}
                                     </div>
                                 `;
                             });
@@ -1285,21 +1527,10 @@
                             equipmentAvailabilityHtml = '<span style="color: #999;">No equipment configured</span>';
                         }
                         
-                        // Overall status badge
-                        let overallStatusHtml = '';
-                        if (hasEquipment) {
-                            const overallColor = allAvailable ? '#28a745' : '#dc3545';
-                            const overallText = allAvailable ? 'All Available' : 'Some Unavailable';
-                            overallStatusHtml = `<span style="background: ${overallColor}; color: white; padding: 6px 16px; border-radius: 4px; font-size: 13px; font-weight: 600;">${overallText}</span>`;
-                        } else {
-                            overallStatusHtml = '<span style="color: #999;">N/A</span>';
-                        }
-                        
                         html += `<tr>
                             <td><strong>${lab.name}</strong></td>
                             <td>${equipmentDisplay || 'N/A'}</td>
                             <td>${equipmentAvailabilityHtml}</td>
-                            <td>${overallStatusHtml}</td>
                         </tr>`;
                     });
 

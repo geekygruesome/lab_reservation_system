@@ -3654,21 +3654,21 @@ def test_get_labs_includes_equipment_availability(client):
 
 def test_update_equipment_availability_admin_success(client):
     """Test that admin can update equipment availability."""
-    # Register and login as admin
+    # Create an admin to create the lab, then register faculty to update availability
     client.post(
         "/api/register",
         json={
-            "college_id": "ADM_EQ2",
-            "name": "Admin Equipment 2",
-            "email": "admeq2@pesu.edu",
-            "password": "AdminPass1!",
+            "college_id": "ADM_TMP",
+            "name": "Admin Temp",
+            "email": "admptmp@pesu.edu",
+            "password": "AdminTemp1!",
             "role": "admin",
         },
     )
-    login_resp = client.post("/api/login", json={"college_id": "ADM_EQ2", "password": "AdminPass1!"})
-    token = login_resp.get_json()["token"]
+    admin_login = client.post("/api/login", json={"college_id": "ADM_TMP", "password": "AdminTemp1!"})
+    admin_token = admin_login.get_json()["token"]
 
-    # Create a lab with equipment
+    # Create a lab with equipment using admin
     create_resp = client.post(
         "/api/labs",
         json={
@@ -3676,10 +3676,24 @@ def test_update_equipment_availability_admin_success(client):
             "capacity": 30,
             "equipment": ["Computer", "Printer"],
         },
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert create_resp.status_code == 201
     lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Register and login as faculty (equipment editing allowed for faculty/lab_assistant)
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "FAC_EQ2",
+            "name": "Faculty Equipment 2",
+            "email": "faceq2@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "FAC_EQ2", "password": "FacultyPass1!"})
+    token = login_resp.get_json()["token"]
 
     # Update equipment availability
     update_resp = client.put(
@@ -3703,21 +3717,19 @@ def test_update_equipment_availability_admin_success(client):
 
 def test_update_equipment_availability_invalid_status(client):
     """Test that invalid is_available value is rejected."""
-    # Register and login as admin
+    # Create admin and lab, then perform update as faculty
     client.post(
         "/api/register",
         json={
-            "college_id": "ADM_EQ3",
-            "name": "Admin Equipment 3",
-            "email": "admeq3@pesu.edu",
-            "password": "AdminPass1!",
+            "college_id": "ADM_TMP2",
+            "name": "Admin Temp 2",
+            "email": "admptmp2@pesu.edu",
+            "password": "AdminTemp2!",
             "role": "admin",
         },
     )
-    login_resp = client.post("/api/login", json={"college_id": "ADM_EQ3", "password": "AdminPass1!"})
-    token = login_resp.get_json()["token"]
-
-    # Create a lab
+    admin_login = client.post("/api/login", json={"college_id": "ADM_TMP2", "password": "AdminTemp2!"})
+    admin_token = admin_login.get_json()["token"]
     create_resp = client.post(
         "/api/labs",
         json={
@@ -3725,9 +3737,22 @@ def test_update_equipment_availability_invalid_status(client):
             "capacity": 20,
             "equipment": ["Computer"],
         },
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     lab_id = create_resp.get_json()["lab"]["id"]
+
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "FAC_EQ3",
+            "name": "Faculty Equipment 3",
+            "email": "faceq3@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "FAC_EQ3", "password": "FacultyPass1!"})
+    token = login_resp.get_json()["token"]
 
     # Try to update with invalid status
     update_resp = client.put(
@@ -3817,21 +3842,21 @@ def test_update_lab_syncs_equipment_availability(client):
 
 def test_update_equipment_availability_equipment_not_found(client):
     """Test that updating non-existent equipment returns 404."""
-    # Register and login as admin
+    # Create an admin to create the lab, then register faculty to attempt update
     client.post(
         "/api/register",
         json={
-            "college_id": "ADM_NOTFOUND",
-            "name": "Admin Not Found",
-            "email": "admnotfound@pesu.edu",
+            "college_id": "ADM_NOTF",
+            "name": "Admin NotFound",
+            "email": "admnotf@pesu.edu",
             "password": "AdminPass1!",
             "role": "admin",
         },
     )
-    login_resp = client.post("/api/login", json={"college_id": "ADM_NOTFOUND", "password": "AdminPass1!"})
-    token = login_resp.get_json()["token"]
+    admin_login = client.post("/api/login", json={"college_id": "ADM_NOTF", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
 
-    # Create a lab
+    # Create a lab with admin
     create_resp = client.post(
         "/api/labs",
         json={
@@ -3839,9 +3864,23 @@ def test_update_equipment_availability_equipment_not_found(client):
             "capacity": 20,
             "equipment": ["Computer"],
         },
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Register and login as faculty (equipment editing allowed for faculty/lab_assistant)
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "FAC_NOTFOUND",
+            "name": "Faculty Not Found",
+            "email": "facnotfound@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "FAC_NOTFOUND", "password": "FacultyPass1!"})
+    token = login_resp.get_json()["token"]
 
     # Try to update non-existent equipment
     update_resp = client.put(
@@ -3855,18 +3894,18 @@ def test_update_equipment_availability_equipment_not_found(client):
 
 def test_update_equipment_availability_lab_not_found(client):
     """Test that updating equipment for non-existent lab returns 404."""
-    # Register and login as admin
+    # Register and login as faculty
     client.post(
         "/api/register",
         json={
-            "college_id": "ADM_LABNF",
-            "name": "Admin Lab NF",
-            "email": "admlabnf@pesu.edu",
-            "password": "AdminPass1!",
-            "role": "admin",
+            "college_id": "FAC_LABNF",
+            "name": "Faculty Lab NF",
+            "email": "faclabnf@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
         },
     )
-    login_resp = client.post("/api/login", json={"college_id": "ADM_LABNF", "password": "AdminPass1!"})
+    login_resp = client.post("/api/login", json={"college_id": "FAC_LABNF", "password": "FacultyPass1!"})
     token = login_resp.get_json()["token"]
 
     # Try to update equipment for non-existent lab
@@ -3881,7 +3920,7 @@ def test_update_equipment_availability_lab_not_found(client):
 
 def test_update_equipment_availability_missing_field(client):
     """Test that missing is_available field returns 400."""
-    # Register and login as admin
+    # Create an admin to create the lab, then register faculty to attempt update
     client.post(
         "/api/register",
         json={
@@ -3892,10 +3931,10 @@ def test_update_equipment_availability_missing_field(client):
             "role": "admin",
         },
     )
-    login_resp = client.post("/api/login", json={"college_id": "ADM_MISS", "password": "AdminPass1!"})
-    token = login_resp.get_json()["token"]
+    admin_login = client.post("/api/login", json={"college_id": "ADM_MISS", "password": "AdminPass1!"})
+    admin_token = admin_login.get_json()["token"]
 
-    # Create a lab
+    # Create a lab with admin
     create_resp = client.post(
         "/api/labs",
         json={
@@ -3903,9 +3942,23 @@ def test_update_equipment_availability_missing_field(client):
             "capacity": 20,
             "equipment": ["Computer"],
         },
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     lab_id = create_resp.get_json()["lab"]["id"]
+
+    # Register and login as faculty
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "FAC_MISS",
+            "name": "Faculty Missing",
+            "email": "facmiss@pesu.edu",
+            "password": "FacultyPass1!",
+            "role": "faculty",
+        },
+    )
+    login_resp = client.post("/api/login", json={"college_id": "FAC_MISS", "password": "FacultyPass1!"})
+    token = login_resp.get_json()["token"]
 
     # Try to update without is_available field (send valid JSON but missing field)
     update_resp = client.put(
