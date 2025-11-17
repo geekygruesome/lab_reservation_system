@@ -113,6 +113,12 @@
         .admin-only.visible {
             display: block !important;
         }
+        .faculty-lab-assistant-only {
+            display: none !important;
+        }
+        .faculty-lab-assistant-only.visible {
+            display: block !important;
+        }
         .error {
             background: #fee;
             color: #c33;
@@ -292,6 +298,12 @@
                 <p>Browse all available laboratory spaces</p>
             </div>
 
+            <div class="card faculty-lab-assistant-only" onclick="showEquipmentStatus()">
+                <div class="card-icon">⚙️</div>
+                <h3>View Equipment Status</h3>
+                <p>Check equipment availability across all labs</p>
+            </div>
+
             <div class="card admin-only">
                 <div class="card-icon">👥</div>
                 <h3>Manage Users</h3>
@@ -378,6 +390,14 @@
             </div>
         </div>
 
+        <!-- Equipment Status Section -->
+        <div class="bookings-section" id="equipmentStatusSection" style="display: none;">
+            <h2>Equipment Status</h2>
+            <div id="equipmentStatusContainer">
+                <div class="empty-state">Loading equipment status...</div>
+            </div>
+        </div>
+
         <!-- Lab Create/Edit Modal -->
         <div id="labModal" class="modal" style="display: none;">
             <div class="modal-content">
@@ -437,6 +457,13 @@
                     document.getElementById('welcomeMessage').textContent =
                         `Welcome, ${userData.name}! Select an option to continue.`;
                     loadUserBookings();
+                }
+
+                // Show faculty/lab assistant-only cards
+                if (userData.role === 'faculty' || userData.role === 'lab_assistant') {
+                    document.querySelectorAll('.faculty-lab-assistant-only').forEach(element => {
+                        element.classList.add('visible');
+                    });
                 }
 
                 // Verify token with backend
@@ -635,6 +662,7 @@
             document.getElementById('adminBookingsSection').style.display = 'none';
             document.getElementById('userBookingsSection').style.display = 'none';
             document.getElementById('availableLabsSection').style.display = 'none';
+            document.getElementById('equipmentStatusSection').style.display = 'none';
             
             // Show lab management section
             const labSection = document.getElementById('labManagementSection');
@@ -676,23 +704,58 @@
 
                 const data = await response.json();
                 console.log('Labs data:', data);
+                console.log('First lab equipment_availability:', data.labs && data.labs[0] ? data.labs[0].equipment_availability : 'No labs');
                 const container = document.getElementById('labsContainer');
 
                 if (data && data.success && data.labs && data.labs.length > 0) {
                     let html = '<table class="bookings-table"><thead><tr>';
-                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th><th>Actions</th>';
+                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Equipment Availability</th><th>Created At</th><th>Actions</th>';
                     html += '</tr></thead><tbody>';
 
                     data.labs.forEach(lab => {
                         // Parse equipment if it's JSON string
                         let equipmentDisplay = lab.equipment;
+                        let equipmentList = [];
                         try {
                             const eq = JSON.parse(lab.equipment);
                             if (Array.isArray(eq)) {
                                 equipmentDisplay = eq.join(', ');
+                                equipmentList = eq;
                             }
                         } catch (e) {
-                            // Not JSON, use as-is
+                            // Not JSON, try comma-separated
+                            if (lab.equipment.includes(',')) {
+                                equipmentList = lab.equipment.split(',').map(e => e.trim());
+                            } else {
+                                equipmentList = [lab.equipment.trim()];
+                            }
+                        }
+                        
+                        // Build equipment availability display
+                        let equipmentAvailabilityHtml = '';
+                        if (lab.equipment_availability && lab.equipment_availability.length > 0) {
+                            equipmentAvailabilityHtml = '<div style="display: flex; flex-direction: column; gap: 4px;">';
+                            lab.equipment_availability.forEach(eq => {
+                                const isAvailable = eq.is_available === 'yes';
+                                const statusColor = isAvailable ? '#28a745' : '#dc3545';
+                                const statusText = isAvailable ? 'Yes' : 'No';
+                                const safeEqName = eq.equipment_name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                                equipmentAvailabilityHtml += `
+                                    <div style="display: flex; align-items: center; gap: 8px; padding: 4px;">
+                                        <span style="font-weight: 600;">${eq.equipment_name}:</span>
+                                        <button 
+                                            class="btn-toggle" 
+                                            onclick="toggleEquipmentAvailability(${lab.id}, '${safeEqName}', ${!isAvailable})"
+                                            style="background: ${statusColor}; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                                        >
+                                            ${statusText}
+                                        </button>
+                                    </div>
+                                `;
+                            });
+                            equipmentAvailabilityHtml += '</div>';
+                        } else {
+                            equipmentAvailabilityHtml = '<span style="color: #999;">No equipment configured</span>';
                         }
                         
                         const safeName = lab.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -702,6 +765,7 @@
                             <td>${lab.name}</td>
                             <td>${lab.capacity}</td>
                             <td>${equipmentDisplay}</td>
+                            <td>${equipmentAvailabilityHtml}</td>
                             <td>${new Date(lab.created_at).toLocaleDateString()}</td>
                             <td>
                                 <button class="btn-edit" onclick="editLab(${lab.id})">Edit</button>
@@ -854,6 +918,43 @@
             } catch (error) {
                 console.error('Error saving lab:', error);
                 alert('Error saving lab: ' + error.message);
+            }
+        }
+
+        async function toggleEquipmentAvailability(labId, equipmentName, newStatus) {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Please login again');
+                window.location.href = '/login.html';
+                return;
+            }
+
+            const isAvailable = newStatus ? 'yes' : 'no';
+            const encodedEquipmentName = encodeURIComponent(equipmentName);
+
+            try {
+                const response = await fetch(
+                    `http://localhost:5000/api/labs/${labId}/equipment/${encodedEquipmentName}/availability`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ is_available: isAvailable }),
+                    }
+                );
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    // Refresh the lab list to show updated status
+                    loadLabs();
+                } else {
+                    alert(data.message || 'Failed to update equipment availability');
+                }
+            } catch (error) {
+                console.error('Error updating equipment availability:', error);
+                alert('Error updating equipment availability: ' + error.message);
             }
         }
 
@@ -1013,6 +1114,7 @@
             document.getElementById('adminBookingsSection').style.display = 'none';
             document.getElementById('labManagementSection').style.display = 'none';
             document.getElementById('availableLabsSection').style.display = 'none';
+            document.getElementById('equipmentStatusSection').style.display = 'none';
             
             // Show user bookings section
             document.getElementById('userBookingsSection').style.display = 'block';
@@ -1024,10 +1126,23 @@
             document.getElementById('adminBookingsSection').style.display = 'none';
             document.getElementById('userBookingsSection').style.display = 'none';
             document.getElementById('labManagementSection').style.display = 'none';
+            document.getElementById('equipmentStatusSection').style.display = 'none';
             
             // Show available labs section
             document.getElementById('availableLabsSection').style.display = 'block';
             await loadAvailableLabs();
+        }
+
+        async function showEquipmentStatus() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('userBookingsSection').style.display = 'none';
+            document.getElementById('labManagementSection').style.display = 'none';
+            document.getElementById('availableLabsSection').style.display = 'none';
+            
+            // Show equipment status section
+            document.getElementById('equipmentStatusSection').style.display = 'block';
+            await loadEquipmentStatus();
         }
 
         async function loadAvailableLabs() {
@@ -1094,6 +1209,109 @@
                 console.error('Error loading available labs:', error);
                 document.getElementById('availableLabsContainer').innerHTML =
                     `<div class="empty-state">Error loading labs: ${error.message}. Check console for details.</div>`;
+            }
+        }
+
+        async function loadEquipmentStatus() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('equipmentStatusContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
+            try {
+                console.log('Loading equipment status...');
+                const response = await fetch('http://localhost:5000/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Equipment status response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load equipment status:', errorData);
+                    throw new Error(errorData.message || 'Failed to load equipment status');
+                }
+
+                const data = await response.json();
+                console.log('Equipment status data:', data);
+                const container = document.getElementById('equipmentStatusContainer');
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>Lab Name</th><th>Equipment</th><th>Equipment Status</th><th>Overall Status</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.labs.forEach(lab => {
+                        // Parse equipment if it's JSON string
+                        let equipmentDisplay = lab.equipment;
+                        try {
+                            const eq = JSON.parse(lab.equipment);
+                            if (Array.isArray(eq)) {
+                                equipmentDisplay = eq.join(', ');
+                            }
+                        } catch (e) {
+                            // Not JSON, use as-is
+                        }
+                        
+                        // Build equipment availability display
+                        let equipmentAvailabilityHtml = '';
+                        let allAvailable = true;
+                        let hasEquipment = false;
+                        
+                        if (lab.equipment_availability && lab.equipment_availability.length > 0) {
+                            hasEquipment = true;
+                            equipmentAvailabilityHtml = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                            lab.equipment_availability.forEach(eq => {
+                                const isAvailable = eq.is_available === 'yes';
+                                if (!isAvailable) allAvailable = false;
+                                const statusColor = isAvailable ? '#28a745' : '#dc3545';
+                                const statusText = isAvailable ? 'Available' : 'Not Available';
+                                equipmentAvailabilityHtml += `
+                                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px; background: #f8f9fa; border-radius: 4px;">
+                                        <span style="font-weight: 600; min-width: 150px;">${eq.equipment_name}:</span>
+                                        <span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">
+                                            ${statusText}
+                                        </span>
+                                    </div>
+                                `;
+                            });
+                            equipmentAvailabilityHtml += '</div>';
+                        } else {
+                            equipmentAvailabilityHtml = '<span style="color: #999;">No equipment configured</span>';
+                        }
+                        
+                        // Overall status badge
+                        let overallStatusHtml = '';
+                        if (hasEquipment) {
+                            const overallColor = allAvailable ? '#28a745' : '#dc3545';
+                            const overallText = allAvailable ? 'All Available' : 'Some Unavailable';
+                            overallStatusHtml = `<span style="background: ${overallColor}; color: white; padding: 6px 16px; border-radius: 4px; font-size: 13px; font-weight: 600;">${overallText}</span>`;
+                        } else {
+                            overallStatusHtml = '<span style="color: #999;">N/A</span>';
+                        }
+                        
+                        html += `<tr>
+                            <td><strong>${lab.name}</strong></td>
+                            <td>${equipmentDisplay || 'N/A'}</td>
+                            <td>${equipmentAvailabilityHtml}</td>
+                            <td>${overallStatusHtml}</td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No labs available. Contact an admin to create labs.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading equipment status:', error);
+                document.getElementById('equipmentStatusContainer').innerHTML =
+                    `<div class="empty-state">Error loading equipment status: ${error.message}. Check console for details.</div>`;
             }
         }
 
