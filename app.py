@@ -115,6 +115,19 @@ def init_db():
         );
         """
     )
+    # Create disabled_labs table for tracking labs disabled for specific dates
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS disabled_labs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lab_id INTEGER NOT NULL,
+            disabled_date TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE
+        );
+        """
+    )
     conn.commit()
 
     # Close the connection unless it's an in-memory database. Tests
@@ -134,8 +147,50 @@ def init_db():
         conn.close()
 
     print("Database initialization complete.")
-# --- Helper Functions (Core Logic) ---
 
+
+# --- Helper Functions for Availability ---
+
+def get_day_of_week(date_str):
+    """
+    Get the day of week name from a date string (YYYY-MM-DD).
+    Returns: 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
+    """
+    try:
+        date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        return days[date_obj.weekday()]
+    except ValueError:
+        return None
+
+
+def time_to_minutes(time_str):
+    """Convert time string (HH:MM) to minutes since midnight."""
+    try:
+        parts = time_str.split(':')
+        return int(parts[0]) * 60 + int(parts[1])
+    except (ValueError, IndexError):
+        return None
+
+
+def slots_overlap(slot1_start, slot1_end, slot2_start, slot2_end):
+    """
+    Check if two time slots overlap.
+    Returns True if slots overlap, False otherwise.
+    """
+    start1 = time_to_minutes(slot1_start)
+    end1 = time_to_minutes(slot1_end)
+    start2 = time_to_minutes(slot2_start)
+    end2 = time_to_minutes(slot2_end)
+
+    if start1 is None or end1 is None or start2 is None or end2 is None:
+        return False
+
+    # Slots overlap if one starts before the other ends
+    return start1 < end2 and start2 < end1
+
+
+# --- Helper Functions (Core Logic) ---
 
 def validate_registration_data(data):
     """
@@ -744,6 +799,297 @@ def reject_booking(booking_id):
         import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+# --- Admin Lab Availability Endpoint ---
+
+@app.route("/api/admin/labs/available", methods=["GET"])
+@require_role("admin")
+def admin_get_available_labs():
+    """
+    Admin view: Return ALL labs with availability slots, booking details, occupancy metrics,
+    and lab status for a specific date. Requires admin role.
+    Shows fully booked labs and occupancy labels for complete system visibility.
+    """
+    date_str = request.args.get("date")
+    if not date_str:
+        return jsonify({"error": "Date is required"}), 400
+
+    # Validate date
+    try:
+        date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        if date_obj.strftime("%Y-%m-%d") != date_str:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+
+    # Past dates not allowed for admin actions either
+    today = datetime.datetime.now().date()
+    if date_obj.date() < today:
+        return jsonify({"error": "Past dates are not allowed"}), 400
+
+    day_of_week = get_day_of_week(date_str)
+    if not day_of_week:
+        return jsonify({"error": "Invalid date"}), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Fetch all labs with their availability slots for this day
+        labs_query = (
+            """
+            SELECT l.id, l.name, l.capacity, l.equipment,
+                   av.start_time, av.end_time
+            FROM labs l
+            LEFT JOIN availability_slots av ON l.id = av.lab_id AND av.day_of_week = ?
+            ORDER BY l.name ASC, av.start_time ASC
+            """
+        )
+        cursor.execute(labs_query, (day_of_week,))
+        labs_rows = cursor.fetchall()
+
+        # Fetch all bookings for this lab on this date
+        bookings_query = (
+            """
+            SELECT b.id, b.college_id, b.lab_name, b.start_time, b.end_time,
+                   b.status, b.created_at, u.name, u.email
+            FROM bookings b
+            LEFT JOIN users u ON b.college_id = u.college_id
+            WHERE b.booking_date = ?
+            ORDER BY b.lab_name ASC, b.start_time ASC
+            """
+        )
+        cursor.execute(bookings_query, (date_str,))
+        bookings_rows = cursor.fetchall()
+
+        # Build labs dictionary with slots
+        labs_dict = {}
+        for row in labs_rows:
+            lab_id = row[0]
+            lab_name = row[1]
+            if lab_id not in labs_dict:
+                labs_dict[lab_id] = {
+                    "lab_id": lab_id,
+                    "lab_name": lab_name,
+                    "capacity": row[2],
+                    "equipment": row[3],
+                    "availability_slots": [],
+                    "bookings": [],
+                    "slots_by_time": {}
+                }
+
+            # Add availability slot if it exists
+            if row[4] and row[5]:
+                avail_start = row[4]
+                avail_end = row[5]
+                # Attach per-slot capacity (lab capacity applies to each slot)
+                slot = {"start_time": avail_start, "end_time": avail_end, "capacity": row[2]}
+                if slot not in labs_dict[lab_id]["availability_slots"]:
+                    labs_dict[lab_id]["availability_slots"].append(slot)
+                    # Initialize slot occupancy tracker
+                    time_key = f"{avail_start}-{avail_end}"
+                    if time_key not in labs_dict[lab_id]["slots_by_time"]:
+                        labs_dict[lab_id]["slots_by_time"][time_key] = {
+                            "start_time": avail_start,
+                            "end_time": avail_end,
+                            "booked_count": 0,
+                            "bookings": [],
+                            "capacity": row[2]
+                        }
+
+        # Process bookings and match them to slots
+        for booking_row in bookings_rows:
+            booking_id = booking_row[0]
+            college_id = booking_row[1]
+            lab_name = booking_row[2]
+            booking_start = booking_row[3]
+            booking_end = booking_row[4]
+            booking_status = booking_row[5]
+            booking_created_at = booking_row[6]
+            booking_user_name = booking_row[7]
+            booking_user_email = booking_row[8]
+
+            # Find the lab by name
+            lab_id = None
+            for lid, ldata in labs_dict.items():
+                if ldata["lab_name"] == lab_name:
+                    lab_id = lid
+                    break
+
+            if lab_id:
+                booking = {
+                    "id": booking_id,
+                    "college_id": college_id,
+                    "name": booking_user_name,
+                    "email": booking_user_email,
+                    "start_time": booking_start,
+                    "end_time": booking_end,
+                    "status": booking_status,
+                    "created_at": booking_created_at
+                }
+
+                # Add booking to lab's booking list (track all bookings)
+                if booking not in labs_dict[lab_id]["bookings"]:
+                    labs_dict[lab_id]["bookings"].append(booking)
+
+                # Check which availability slots this booking overlaps with
+                # Only count APPROVED bookings for occupancy
+                if booking_status == 'approved':
+                    for time_key, slot_info in labs_dict[lab_id]["slots_by_time"].items():
+                        slot_start = slot_info["start_time"]
+                        slot_end = slot_info["end_time"]
+                        # Check if booking overlaps with this slot
+                        if booking_start < slot_end and booking_end > slot_start:
+                            # Booking overlaps with this slot
+                            labs_dict[lab_id]["slots_by_time"][time_key]["booked_count"] += 1
+                            if booking not in labs_dict[lab_id]["slots_by_time"][time_key]["bookings"]:
+                                labs_dict[lab_id]["slots_by_time"][time_key]["bookings"].append(
+                                    booking
+                                )
+
+        # Disabled labs for this date
+        try:
+            cursor.execute(
+                "SELECT lab_id, reason FROM disabled_labs WHERE disabled_date = ?",
+                (date_str,)
+            )
+            disabled_rows = cursor.fetchall()
+            disabled = {r[0]: r[1] for r in disabled_rows} if disabled_rows else {}
+        except Exception:
+            disabled = {}
+
+        labs = []
+        for lab_id, lab_data in labs_dict.items():
+            # Calculate lab occupancy summary (treat capacity as per-slot)
+            total_slots = len(lab_data["availability_slots"])
+            # total possible booking-units = slots * capacity
+            per_slot_capacity = lab_data.get("capacity", 1) or 1
+            total_possible = total_slots * per_slot_capacity
+            # Check for approved bookings
+            approved_bookings_list = [
+                b for b in lab_data["bookings"]
+                if isinstance(b, dict) and b.get('status') == 'approved'
+            ]
+            has_approved_bookings = len(approved_bookings_list) > 0
+
+            # total_booked = sum of approved bookings only
+            if len(lab_data["slots_by_time"]) > 0:
+                total_booked = (
+                    sum(s["booked_count"] for s in lab_data["slots_by_time"].values())
+                    if lab_data.get("slots_by_time")
+                    else 0
+                )
+            else:
+                # If no slots configured but has approved bookings, count them
+                total_booked = len(approved_bookings_list)
+            total_free = max(0, total_possible - total_booked)
+
+            # Determine lab status
+            if lab_id in disabled:
+                status = "Disabled"
+                status_badge = "🔴"
+            elif has_approved_bookings:
+                # If lab has approved bookings, it's Active (even if no slots configured)
+                status = "Active"
+                status_badge = "🟢"
+            elif total_slots == 0:
+                status = "No lab active"
+                status_badge = "🟡"
+            else:
+                status = "Active"
+                status_badge = "🟢"
+
+            # Format slots with occupancy labels (per-slot capacity)
+            # Only count APPROVED bookings for occupancy
+            formatted_slots = []
+            # If lab has approved bookings but no slots configured, create slots from approved bookings
+            if len(approved_bookings_list) > 0 and total_slots == 0:
+                for booking in approved_bookings_list:
+                    slot_start = booking['start_time']
+                    slot_end = booking['end_time']
+                    capacity = per_slot_capacity
+                    formatted_slots.append({
+                        "time": f"{slot_start}-{slot_end}",
+                        "start_time": slot_start,
+                        "end_time": slot_end,
+                        "booked_count": 1,
+                        "available": 0,
+                        "occupancy_label": "FULL",
+                        "bookings": [booking]
+                    })
+            else:
+                # Normal case: use availability slots, but only count approved bookings
+                for time_key, slot_info in lab_data["slots_by_time"].items():
+                    # Count only approved bookings for this slot
+                    slot_approved_bookings = [
+                        b for b in approved_bookings_list
+                        if slots_overlap(
+                            slot_info["start_time"], slot_info["end_time"],
+                            b['start_time'], b['end_time']
+                        )
+                    ]
+                    booked = len(slot_approved_bookings)
+                    capacity = per_slot_capacity
+                    available = capacity - booked
+                    occupancy_label = "FULL" if available <= 0 else f"{max(0, available)}/{capacity} free"
+                    formatted_slots.append({
+                        "time": time_key,
+                        "start_time": slot_info["start_time"],
+                        "end_time": slot_info["end_time"],
+                        "booked_count": booked,
+                        "available": max(0, available),
+                        "occupancy_label": occupancy_label,
+                        "bookings": slot_approved_bookings
+                    })
+
+            # Get time slots - from availability slots or from approved bookings if no slots
+            time_slots_list = []
+            if lab_data["availability_slots"]:
+                time_slots_list = [
+                    f"{slot['start_time']}-{slot['end_time']}"
+                    for slot in lab_data["availability_slots"]
+                ]
+            elif has_approved_bookings and approved_bookings_list:
+                time_slots_list = [
+                    f"{b['start_time']}-{b['end_time']}"
+                    for b in approved_bookings_list
+                ]
+
+            labs.append({
+                "lab_id": lab_id,
+                "lab_name": lab_data["lab_name"],
+                "capacity": lab_data["capacity"],
+                "equipment": lab_data["equipment"],
+                "status": status,
+                "status_badge": status_badge,
+                "time_slots": time_slots_list,
+                "occupancy": {
+                    "total_slots": total_slots,
+                    "booked": total_booked,
+                    "free": total_free,
+                    "occupancy_label": (
+                        f"{total_free}/{total_possible} free" if total_free > 0 else "ALL BOOKED"
+                    )
+                },
+                "availability_slots": formatted_slots,
+                "bookings": lab_data["bookings"],
+                "disabled": lab_id in disabled,
+                "disabled_reason": disabled.get(lab_id)
+            })
+
+        return jsonify({
+            "date": date_str,
+            "day_of_week": day_of_week,
+            "labs": labs,
+            "total_labs": len(labs)
+        }), 200
+    except sqlite3.Error as e:
+        print(f"Database Error in admin_get_available_labs: {e}")
+        return jsonify({"error": "Something went wrong"}), 500
     finally:
         if DATABASE != ":memory:":
             conn.close()
