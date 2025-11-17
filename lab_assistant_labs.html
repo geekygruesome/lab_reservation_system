@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab Assistant - Lab Schedule</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+        header {
+            margin-bottom: 30px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 15px;
+        }
+        h1 {
+            color: #333;
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+        .role-badge {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+        .date-selector {
+            margin-bottom: 25px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .date-selector label {
+            font-weight: 600;
+            color: #333;
+        }
+        .date-selector input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1em;
+        }
+        .date-selector button {
+            padding: 8px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        .date-selector button:hover {
+            background: #764ba2;
+        }
+        .loading {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+            font-style: italic;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c62828;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .empty-state p {
+            font-size: 1.1em;
+        }
+        .labs-grid {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        }
+        .lab-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: #fafafa;
+            transition: box-shadow 0.3s, transform 0.3s;
+        }
+        .lab-card:hover {
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            transform: translateY(-2px);
+        }
+        .lab-title {
+            font-size: 1.3em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .lab-info {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+            color: #555;
+        }
+        .lab-info-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .lab-info-item strong {
+            color: #333;
+        }
+        .lab-equipment {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #667eea;
+        }
+        .lab-equipment strong {
+            color: #333;
+            font-size: 0.9em;
+        }
+        .lab-equipment p {
+            color: #666;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+        .slots-section {
+            margin-top: 15px;
+        }
+        .slots-section h4 {
+            color: #333;
+            font-size: 0.95em;
+            margin-bottom: 8px;
+        }
+        .slots-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .slot-badge {
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+        .available-slot {
+            background: #c8e6c9;
+            color: #2e7d32;
+        }
+        .booked-slot {
+            background: #ffccbc;
+            color: #d84315;
+        }
+        .stats {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            font-size: 0.85em;
+        }
+        .stat-item {
+            padding: 5px 10px;
+            background: white;
+            border-radius: 4px;
+            color: #666;
+        }
+        .stat-free {
+            border-left: 3px solid #2e7d32;
+        }
+        .stat-booked {
+            border-left: 3px solid #d84315;
+        }
+        .bookings-section {
+            margin-top: 15px;
+            border-top: 1px solid #ddd;
+            padding-top: 15px;
+        }
+        .bookings-section h4 {
+            color: #333;
+            font-size: 0.95em;
+            margin-bottom: 10px;
+        }
+        .booking-item {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            border-left: 3px solid #ff9800;
+            font-size: 0.85em;
+        }
+        .booking-time {
+            font-weight: 600;
+            color: #333;
+        }
+        .booking-person {
+            color: #666;
+            margin-top: 3px;
+        }
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        .logout-btn:hover {
+            background: #d32f2f;
+        }
+    </style>
+</head>
+<body>
+    <button class="logout-btn" onclick="logout()">Logout</button>
+
+    <div class="container">
+        <header>
+            <h1>🏫 Lab Assistant Dashboard</h1>
+            <p>View assigned labs and today's schedule</p>
+            <div class="role-badge">Lab Assistant</div>
+        </header>
+
+        <div class="date-selector">
+            <label for="dateInput">Select Date:</label>
+            <input type="date" id="dateInput" />
+            <button onclick="fetchAssignedLabs()">Load Labs</button>
+        </div>
+
+        <div id="errorContainer"></div>
+        <div id="loadingContainer" class="loading" style="display: none;">
+            ⏳ Loading lab data...
+        </div>
+        <div id="emptyContainer" class="empty-state" style="display: none;">
+            <p>No labs assigned to you for this date.</p>
+        </div>
+
+        <div id="labsContainer"></div>
+    </div>
+
+    <script>
+        // Set default date to today
+        document.addEventListener('DOMContentLoaded', () => {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('dateInput').value = today;
+            fetchAssignedLabs();
+        });
+
+        async function fetchAssignedLabs() {
+            const date = document.getElementById('dateInput').value;
+            const errorContainer = document.getElementById('errorContainer');
+            const loadingContainer = document.getElementById('loadingContainer');
+            const labsContainer = document.getElementById('labsContainer');
+            const emptyContainer = document.getElementById('emptyContainer');
+
+            // Clear previous state
+            errorContainer.innerHTML = '';
+            errorContainer.style.display = 'none';
+            labsContainer.innerHTML = '';
+            emptyContainer.style.display = 'none';
+            loadingContainer.style.display = 'block';
+
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                const response = await fetch(`/api/lab-assistant/labs/assigned?date=${date}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.status === 403) {
+                    showError('Access denied. You do not have permission to view this page.');
+                    loadingContainer.style.display = 'none';
+                    return;
+                }
+
+                if (!response.ok) {
+                    showError(`Failed to fetch assigned labs: ${response.statusText}`);
+                    loadingContainer.style.display = 'none';
+                    return;
+                }
+
+                const data = await response.json();
+                loadingContainer.style.display = 'none';
+
+                if (!data.assigned_labs || data.assigned_labs.length === 0) {
+                    emptyContainer.style.display = 'block';
+                    return;
+                }
+
+                renderLabs(data.assigned_labs);
+            } catch (error) {
+                loadingContainer.style.display = 'none';
+                showError(`Error: ${error.message}`);
+            }
+        }
+
+        function renderLabs(labs) {
+            const labsContainer = document.getElementById('labsContainer');
+            labsContainer.innerHTML = '';
+
+            const labsGrid = document.createElement('div');
+            labsGrid.className = 'labs-grid';
+
+            labs.forEach(lab => {
+                const labCard = document.createElement('div');
+                labCard.className = 'lab-card';
+
+                const availableSlots = lab.availability_slots || [];
+                const bookings = lab.bookings || [];
+
+                let bookingsHTML = '';
+                if (bookings.length > 0) {
+                    bookingsHTML = `
+                        <div class="bookings-section">
+                            <h4>Today's Bookings (${bookings.length})</h4>
+                            ${bookings.map(b => `
+                                <div class="booking-item">
+                                    <div class="booking-time">${b.start_time} - ${b.end_time}</div>
+                                    <div class="booking-person">👤 ${b.name || 'Unknown'}</div>
+                                    <div class="booking-person">📧 ${b.email || 'N/A'}</div>
+                                    <div class="booking-person">Status: <strong>${b.status}</strong></div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+
+                labCard.innerHTML = `
+                    <div class="lab-title">${lab.lab_name}</div>
+                    <div class="lab-info">
+                        <div class="lab-info-item">
+                            <strong>Capacity</strong>
+                            <span>${lab.capacity} students</span>
+                        </div>
+                    </div>
+                    <div class="lab-equipment">
+                        <strong>Equipment:</strong>
+                        <p>${lab.equipment || 'N/A'}</p>
+                    </div>
+                    <div class="slots-section">
+                        <h4>Available Time Slots</h4>
+                        ${availableSlots.length > 0 ? `
+                            <div class="slots-list">
+                                ${availableSlots.map(slot => `<span class="slot-badge available-slot">${slot}</span>`).join('')}
+                            </div>
+                        ` : '<p style="color: #999; font-size: 0.9em;">No available slots for this date.</p>'}
+                    </div>
+                    <div class="stats">
+                        <div class="stat-item stat-free">Free: ${lab.occupancy ? lab.occupancy.free : availableSlots.length} students</div>
+                        <div class="stat-item stat-booked">Booked: ${lab.occupancy ? lab.occupancy.booked : bookings.length} students</div>
+                        ${lab.occupancy ? `<div class="stat-item" style="border-left: 3px solid #667eea;">Total Capacity: ${lab.occupancy.free + lab.occupancy.booked} students</div>` : ''}
+                    </div>
+                    ${bookingsHTML}
+                `;
+
+                labsGrid.appendChild(labCard);
+            });
+
+            labsContainer.appendChild(labsGrid);
+        }
+
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="error">${message}</div>`;
+            errorContainer.style.display = 'block';
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            window.location.href = '/login.html';
+        }
+    </script>
+</body>
+</html>

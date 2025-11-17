@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Admin - Available Labs</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f9fafb; }
+    .header { margin-bottom: 20px; }
+    .date-selector { margin-bottom: 20px; padding: 12px; background: #fff; border-radius: 6px; border: 1px solid #e5e7eb; }
+    .date-selector input { padding: 6px 8px; margin-right: 8px; }
+    .date-selector button { padding: 6px 12px; background: #3b82f6; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    .date-selector button:hover { background: #2563eb; }
+    #dateError { color: #dc2626; display: none; margin-top: 8px; padding: 8px; background: #fee2e2; border-radius: 4px; }
+
+    .summary { padding: 12px; background: #dbeafe; border-left: 4px solid #3b82f6; border-radius: 4px; margin-bottom: 16px; font-weight: 500; }
+    
+    .lab-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .lab-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; }
+    .lab-name { font-size: 18px; font-weight: 600; color: #1f2937; }
+    .lab-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; margin-left: 8px; }
+    .badge-active { background: #d1fae5; color: #047857; }
+    .badge-disabled { background: #fee2e2; color: #991b1b; }
+
+    .occupancy-summary { padding: 12px; background: #f3f4f6; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #10b981; }
+    .occupancy-label { font-weight: 600; font-size: 14px; color: #1f2937; }
+    .occupancy-value { font-size: 18px; font-weight: 700; color: #10b981; margin-top: 4px; }
+    .occupancy-value.full { color: #ef4444; }
+    
+    .slots-container { margin-top: 12px; }
+    .slot-row { display: flex; align-items: center; padding: 8px; background: #f9fafb; border-radius: 4px; margin-bottom: 8px; }
+    .slot-time { font-weight: 600; color: #1f2937; min-width: 120px; }
+    .slot-status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; margin: 0 8px; }
+    .slot-free { background: #d1fae5; color: #047857; }
+    .slot-full { background: #fee2e2; color: #991b1b; }
+    .slot-bookings { flex: 1; font-size: 12px; color: #666; }
+
+    .bookings-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
+    .bookings-label { font-weight: 600; color: #1f2937; margin-bottom: 8px; display: block; }
+    .booking-item { padding: 8px; background: #fef2f2; border-left: 3px solid #ef4444; border-radius: 4px; margin-bottom: 6px; font-size: 12px; }
+    .booking-item strong { display: block; color: #7f1d1d; }
+    .booking-email { color: #666; font-size: 11px; margin-top: 2px; }
+
+    .empty-state { color: #6b7280; padding: 20px; text-align: center; background: #f9fafb; border-radius: 6px; }
+    .loading { text-align: center; padding: 20px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Admin Dashboard - Lab Availability & Occupancy</h1>
+    <p style="color: #6b7280; margin-top: 4px;">Super viewer mode: See all labs including fully booked ones</p>
+  </div>
+
+  <div class="date-selector">
+    <label for="datePicker">Select date: </label>
+    <input id="datePicker" type="date" />
+    <button id="loadBtn">Load</button>
+    <div id="dateError"></div>
+  </div>
+
+  <div id="labsContainer"></div>
+
+<script>
+  const dp = document.getElementById('datePicker');
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  dp.value = today.toISOString().slice(0,10);
+  dp.min = dp.value;
+
+  document.getElementById('loadBtn').addEventListener('click', load);
+  dp.addEventListener('keypress', (e) => { if(e.key === 'Enter') load(); });
+
+  async function load(){
+    const date = dp.value;
+    const err = document.getElementById('dateError');
+    err.style.display = 'none';
+    err.textContent = '';
+
+    if(!date){
+      err.textContent = 'Please select a date.';
+      err.style.display = 'block';
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if(!token){
+      document.getElementById('labsContainer').innerHTML = '<div class="empty-state">Not authenticated. Please log in.</div>';
+      return;
+    }
+
+    document.getElementById('labsContainer').innerHTML = '<div class="loading">Loading labs...</div>';
+
+    try{
+      const resp = await fetch(`/api/admin/labs/available?date=${date}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if(!resp.ok){
+        const j = await resp.json().catch(() => ({}));
+        err.textContent = j.error || j.message || 'Failed to load labs';
+        err.style.display = 'block';
+        document.getElementById('labsContainer').innerHTML = '';
+        return;
+      }
+
+      const data = await resp.json();
+      if(!data.labs || data.labs.length === 0){
+        document.getElementById('labsContainer').innerHTML =
+          `<div class="empty-state">No labs found for ${data.date}</div>`;
+        return;
+      }
+
+      let html = `<div class="summary">📅 ${data.date} • ${data.day_of_week} • ${data.total_labs} labs</div>`;
+
+      for(const lab of data.labs){
+        html += renderLabCard(lab, date);
+      }
+
+      document.getElementById('labsContainer').innerHTML = html;
+    }catch(e){
+      console.error(e);
+      document.getElementById('labsContainer').innerHTML =
+        '<div class="empty-state">Network error. Please try again.</div>';
+    }
+  }
+
+  function renderLabCard(lab, date){
+    const statusBadge = lab.status === 'Disabled'
+      ? `<span class="lab-badge badge-disabled">${lab.status_badge} ${lab.status}</span>`
+      : `<span class="lab-badge badge-active">${lab.status_badge} ${lab.status}</span>`;
+
+    const occupancyClass = lab.occupancy.free === 0 ? 'full' : '';
+    const occupancyValueText = lab.occupancy.occupancy_label;
+
+    let slotsHtml = '';
+    if(lab.availability_slots && lab.availability_slots.length > 0){
+      for(const slot of lab.availability_slots){
+        const isFull = slot.available === 0;
+        const statusClass = isFull ? 'slot-full' : 'slot-free';
+        const statusText = isFull ? 'FULL' : `${slot.available} FREE`;
+
+        let bookingsText = '';
+        if(slot.bookings && slot.bookings.length > 0){
+          const names = slot.bookings.map(b => b.name || b.college_id).join(', ');
+          bookingsText = ` (Booked by: ${names})`;
+        }
+
+        slotsHtml += `
+          <div class="slot-row">
+            <div class="slot-time">${slot.time}</div>
+            <span class="slot-status ${statusClass}">${statusText}</span>
+            <div class="slot-bookings">${slot.booked_count}/${slot.booked_count + slot.available} booked${bookingsText}</div>
+          </div>
+        `;
+      }
+    } else {
+      slotsHtml = '<div class="empty-state" style="padding: 8px;">No availability slots for this date</div>';
+    }
+
+    let bookingsHtml = '';
+    if(lab.bookings && lab.bookings.length > 0){
+      bookingsHtml = '<span class="bookings-label">📌 Bookings</span>';
+      for(const b of lab.bookings){
+        bookingsHtml += `
+          <div class="booking-item">
+            <strong>${b.start_time}-${b.end_time}: ${b.name || b.college_id}</strong>
+            <div class="booking-email">${b.email || 'no-email'} | Status: ${b.status}</div>
+          </div>
+        `;
+      }
+    }
+
+    return `
+      <div class="lab-card">
+        <div class="lab-header">
+          <div>
+            <span class="lab-name">${lab.lab_name}</span>
+            ${statusBadge}
+          </div>
+          <div style="font-size: 12px; color: #6b7280;">Capacity: ${lab.capacity}</div>
+        </div>
+
+        <div class="occupancy-summary">
+          <div class="occupancy-label">Lab Occupancy</div>
+          <div class="occupancy-value ${occupancyClass}">${occupancyValueText}</div>
+        </div>
+
+        <div class="slots-container">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 8px;">⏰ Time Slots</div>
+          ${slotsHtml}
+        </div>
+
+        ${bookingsHtml ? `<div class="bookings-section">${bookingsHtml}</div>` : ''}
+      </div>
+    `;
+  }
+
+  // initial load
+  load();
+</script>
+</body>
+</html>
