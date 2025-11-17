@@ -176,6 +176,24 @@
             background: #f8d7da;
             color: #721c24;
         }
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .status-inactive {
+            background: #e2e3e5;
+            color: #383d41;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
         .btn-approve {
             background: #28a745;
             color: white;
@@ -358,21 +376,25 @@
                 <form id="bookingForm" onsubmit="createBooking(event)">
                     <div style="margin-bottom: 15px;">
                         <label for="bookingLabName" style="display: block; margin-bottom: 5px; font-weight: 600;">Lab Name *</label>
-                        <select id="bookingLabName" name="lab_name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <select id="bookingLabName" name="lab_name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="loadAvailableTimeSlots()">
                             <option value="">Select a lab...</option>
                         </select>
                     </div>
                     <div style="margin-bottom: 15px;">
                         <label for="bookingDate" style="display: block; margin-bottom: 5px; font-weight: 600;">Booking Date *</label>
-                        <input type="date" id="bookingDate" name="booking_date" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" min="">
+                        <input type="date" id="bookingDate" name="booking_date" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" min="" onchange="loadAvailableTimeSlots()">
                     </div>
                     <div style="margin-bottom: 15px;">
-                        <label for="bookingStartTime" style="display: block; margin-bottom: 5px; font-weight: 600;">Start Time *</label>
-                        <input type="time" id="bookingStartTime" name="start_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label for="bookingEndTime" style="display: block; margin-bottom: 5px; font-weight: 600;">End Time *</label>
-                        <input type="time" id="bookingEndTime" name="end_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <label for="bookingTimeSlot" style="display: block; margin-bottom: 5px; font-weight: 600;">Time Slot *</label>
+                        <select id="bookingTimeSlot" name="time_slot" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="">Select date and lab first...</option>
+                        </select>
+                        <div id="customTimeInputs" style="display: none; margin-top: 10px;">
+                            <label for="bookingStartTime" style="display: block; margin-bottom: 5px; font-weight: 600; margin-top: 10px;">Start Time *</label>
+                            <input type="time" id="bookingStartTime" name="start_time" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px;">
+                            <label for="bookingEndTime" style="display: block; margin-bottom: 5px; font-weight: 600;">End Time *</label>
+                            <input type="time" id="bookingEndTime" name="end_time" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
                     </div>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
                         <button type="button" onclick="closeBookingModal()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Cancel</button>
@@ -382,11 +404,53 @@
             </div>
         </div>
 
+        <!-- Modify Booking Modal -->
+        <div id="modifyBookingModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeModifyBookingModal()">&times;</span>
+                <h2>Modify Booking</h2>
+                <form id="modifyBookingForm" onsubmit="modifyBooking(event)">
+                    <input type="hidden" id="modifyBookingId">
+                    <div style="margin-bottom: 15px;">
+                        <label for="modifyLabName" style="display: block; margin-bottom: 5px; font-weight: 600;">Lab Name *</label>
+                        <select id="modifyLabName" name="lab_name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="loadModifyAvailableTimeSlots()">
+                            <option value="">Select a lab...</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="modifyBookingDate" style="display: block; margin-bottom: 5px; font-weight: 600;">Booking Date *</label>
+                        <input type="date" id="modifyBookingDate" name="booking_date" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" min="" onchange="loadModifyAvailableTimeSlots()">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="modifyTimeSlot" style="display: block; margin-bottom: 5px; font-weight: 600;">Time Slot *</label>
+                        <select id="modifyTimeSlot" name="time_slot" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="">Select date and lab first...</option>
+                        </select>
+                        <div id="modifyCustomTimeInputs" style="display: none; margin-top: 10px;">
+                            <label for="modifyStartTime" style="display: block; margin-bottom: 5px; font-weight: 600; margin-top: 10px;">Start Time *</label>
+                            <input type="time" id="modifyStartTime" name="start_time" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px;">
+                            <label for="modifyEndTime" style="display: block; margin-bottom: 5px; font-weight: 600;">End Time *</label>
+                            <input type="time" id="modifyEndTime" name="end_time" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" onclick="closeModifyBookingModal()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button type="submit" class="btn-approve">Update Booking</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- Available Labs Section -->
         <div class="bookings-section" id="availableLabsSection" style="display: none;">
             <h2>Available Labs</h2>
+            <div style="margin-bottom: 20px;">
+                <label for="availableLabsDatePicker" style="margin-right: 10px; font-weight: bold;">Select Date:</label>
+                <input type="date" id="availableLabsDatePicker" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                <button onclick="loadAvailableLabs()" style="margin-left: 10px; padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Load Labs</button>
+            </div>
             <div id="availableLabsContainer">
-                <div class="empty-state">Loading available labs...</div>
+                <div class="empty-state">Select a date and click "Load Labs" to view available labs.</div>
             </div>
         </div>
 
@@ -579,7 +643,7 @@
 
                 if (data && data.success && data.bookings && data.bookings.length > 0) {
                     let html = '<table class="bookings-table"><thead><tr>';
-                    html += '<th>ID</th><th>Lab</th><th>Date</th><th>Time</th><th>Status</th>';
+                    html += '<th>ID</th><th>Lab</th><th>Date</th><th>Time</th><th>Status</th><th>Actions</th>';
                     html += '</tr></thead><tbody>';
 
                     data.bookings.forEach(booking => {
@@ -589,6 +653,16 @@
                             <td>${booking.booking_date}</td>
                             <td>${booking.start_time} - ${booking.end_time}</td>
                             <td><span class="status-badge status-${booking.status}">${booking.status}</span></td>
+                            <td>
+                                <button onclick="showModifyBookingModal(${booking.id}, '${booking.lab_name}', '${booking.booking_date}', '${booking.start_time}', '${booking.end_time}')" 
+                                        style="background: #3b82f6; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-right: 5px; font-size: 12px;">
+                                    Modify
+                                </button>
+                                <button onclick="cancelBooking(${booking.id})" 
+                                        style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                                    Cancel
+                                </button>
+                            </td>
                         </tr>`;
                     });
 
@@ -1016,13 +1090,34 @@
                 const labSelect = document.getElementById('bookingLabName');
                 labSelect.innerHTML = '<option value="">Select a lab...</option>';
 
-                if (data && data.success && data.labs && data.labs.length > 0) {
+                    if (data && data.success && data.labs && data.labs.length > 0) {
                     data.labs.forEach(lab => {
                         const option = document.createElement('option');
                         option.value = lab.name;
                         option.textContent = `${lab.name} (Capacity: ${lab.capacity})`;
                         labSelect.appendChild(option);
                     });
+                    
+                    // Show/hide custom time inputs based on role
+                    const user = localStorage.getItem('user');
+                    let userRole = 'student';
+                    try {
+                        const userData = JSON.parse(user);
+                        userRole = userData.role || 'student';
+                    } catch (e) {
+                        console.error('Error parsing user data:', e);
+                    }
+                    
+                    const customTimeInputs = document.getElementById('customTimeInputs');
+                    const timeSlotSelect = document.getElementById('bookingTimeSlot');
+                    if (userRole === 'student') {
+                        customTimeInputs.style.display = 'none';
+                        timeSlotSelect.required = true;
+                    } else {
+                        customTimeInputs.style.display = 'block';
+                        timeSlotSelect.required = false;
+                    }
+                    
                     document.getElementById('bookingModal').style.display = 'block';
                 } else {
                     // Check if user is admin
@@ -1055,6 +1150,8 @@
         function closeBookingModal() {
             document.getElementById('bookingModal').style.display = 'none';
             document.getElementById('bookingForm').reset();
+            document.getElementById('bookingTimeSlot').innerHTML = '<option value="">Select date and lab first...</option>';
+            document.getElementById('customTimeInputs').style.display = 'none';
         }
 
         async function createBooking(event) {
@@ -1067,8 +1164,39 @@
 
             const labName = document.getElementById('bookingLabName').value.trim();
             const bookingDate = document.getElementById('bookingDate').value;
-            const startTime = document.getElementById('bookingStartTime').value;
-            const endTime = document.getElementById('bookingEndTime').value;
+            const timeSlot = document.getElementById('bookingTimeSlot').value;
+            const startTimeInput = document.getElementById('bookingStartTime');
+            const endTimeInput = document.getElementById('bookingEndTime');
+            
+            let startTime, endTime;
+            
+            // Get user role to determine if they can use custom times
+            const user = localStorage.getItem('user');
+            let userRole = 'student';
+            try {
+                const userData = JSON.parse(user);
+                userRole = userData.role || 'student';
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+            
+            // If time slot is selected, use it; otherwise use custom time inputs (for admin/faculty)
+            if (timeSlot && timeSlot !== '') {
+                const [start, end] = timeSlot.split(' - ');
+                startTime = start;
+                endTime = end;
+            } else if (userRole === 'admin' || userRole === 'faculty') {
+                // Admin/Faculty can use custom times
+                startTime = startTimeInput.value;
+                endTime = endTimeInput.value;
+                if (!startTime || !endTime) {
+                    alert('Please select a time slot or enter custom times.');
+                    return;
+                }
+            } else {
+                alert('Please select a time slot from the available options.');
+                return;
+            }
 
             // Validate time range
             if (startTime >= endTime) {
@@ -1097,7 +1225,7 @@
                 console.log('Create booking response:', response.status, data);
 
                 if (response.ok && data.success) {
-                    alert(data.message || 'Booking created successfully!');
+                    showPopup('Entry created successfully!', 'success');
                     closeBookingModal();
                     loadUserBookings();
                 } else {
@@ -1107,6 +1235,397 @@
                 console.error('Error creating booking:', error);
                 alert('Error creating booking: ' + error.message);
             }
+        }
+
+        // Load available time slots for booking
+        async function loadAvailableTimeSlots() {
+            const labName = document.getElementById('bookingLabName').value;
+            const bookingDate = document.getElementById('bookingDate').value;
+            const timeSlotSelect = document.getElementById('bookingTimeSlot');
+            const customTimeInputs = document.getElementById('customTimeInputs');
+            
+            // Get user role
+            const user = localStorage.getItem('user');
+            let userRole = 'student';
+            try {
+                const userData = JSON.parse(user);
+                userRole = userData.role || 'student';
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+            
+            if (!labName || !bookingDate) {
+                timeSlotSelect.innerHTML = '<option value="">Select date and lab first...</option>';
+                customTimeInputs.style.display = 'none';
+                return;
+            }
+            
+            const token = localStorage.getItem('token');
+            if (!token) return;
+            
+            try {
+                // For students, load available slots from API
+                if (userRole === 'student') {
+                    const response = await fetch(`http://localhost:5000/api/labs/${encodeURIComponent(labName)}/available-slots?date=${bookingDate}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                        },
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        timeSlotSelect.innerHTML = '<option value="">Select a time slot...</option>';
+                        customTimeInputs.style.display = 'none';
+                        
+                        if (data.success && data.available_slots && data.available_slots.length > 0) {
+                            data.available_slots.forEach(slot => {
+                                const option = document.createElement('option');
+                                option.value = `${slot.start_time} - ${slot.end_time}`;
+                                option.textContent = `${slot.start_time} - ${slot.end_time} (${slot.available}/${slot.capacity} available)`;
+                                timeSlotSelect.appendChild(option);
+                            });
+                        } else {
+                            timeSlotSelect.innerHTML = '<option value="">No available slots for this date</option>';
+                        }
+                    }
+                } else {
+                    // For admin/faculty, show both dropdown and custom time inputs
+                    const response = await fetch(`http://localhost:5000/api/labs/${encodeURIComponent(labName)}/available-slots?date=${bookingDate}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                        },
+                    });
+                    
+                    timeSlotSelect.innerHTML = '<option value="">Or select from available slots...</option>';
+                    customTimeInputs.style.display = 'block';
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success && data.available_slots && data.available_slots.length > 0) {
+                            data.available_slots.forEach(slot => {
+                                const option = document.createElement('option');
+                                option.value = `${slot.start_time} - ${slot.end_time}`;
+                                option.textContent = `${slot.start_time} - ${slot.end_time} (${slot.available}/${slot.capacity} available)`;
+                                timeSlotSelect.appendChild(option);
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading available slots:', error);
+            }
+        }
+
+        // Show modify booking modal
+        async function showModifyBookingModal(bookingId, labName, bookingDate, startTime, endTime) {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+            
+            document.getElementById('modifyBookingId').value = bookingId;
+            document.getElementById('modifyLabName').value = labName;
+            document.getElementById('modifyBookingDate').value = bookingDate;
+            document.getElementById('modifyStartTime').value = startTime;
+            document.getElementById('modifyEndTime').value = endTime;
+            
+            // Set minimum date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('modifyBookingDate').setAttribute('min', today);
+            
+            // Load labs
+            try {
+                const response = await fetch('http://localhost:5000/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const labSelect = document.getElementById('modifyLabName');
+                    labSelect.innerHTML = '<option value="">Select a lab...</option>';
+                    
+                    if (data && data.success && data.labs && data.labs.length > 0) {
+                        data.labs.forEach(lab => {
+                            const option = document.createElement('option');
+                            option.value = lab.name;
+                            option.textContent = `${lab.name} (Capacity: ${lab.capacity})`;
+                            if (lab.name === labName) {
+                                option.selected = true;
+                            }
+                            labSelect.appendChild(option);
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading labs:', error);
+            }
+            
+            // Load available time slots
+            loadModifyAvailableTimeSlots();
+            
+            document.getElementById('modifyBookingModal').style.display = 'block';
+        }
+
+        // Load available time slots for modify
+        async function loadModifyAvailableTimeSlots() {
+            const labName = document.getElementById('modifyLabName').value;
+            const bookingDate = document.getElementById('modifyBookingDate').value;
+            const timeSlotSelect = document.getElementById('modifyTimeSlot');
+            const customTimeInputs = document.getElementById('modifyCustomTimeInputs');
+            
+            // Get user role
+            const user = localStorage.getItem('user');
+            let userRole = 'student';
+            try {
+                const userData = JSON.parse(user);
+                userRole = userData.role || 'student';
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+            
+            if (!labName || !bookingDate) {
+                timeSlotSelect.innerHTML = '<option value="">Select date and lab first...</option>';
+                customTimeInputs.style.display = 'none';
+                return;
+            }
+            
+            const token = localStorage.getItem('token');
+            if (!token) return;
+            
+            try {
+                if (userRole === 'student') {
+                    const response = await fetch(`http://localhost:5000/api/labs/${encodeURIComponent(labName)}/available-slots?date=${bookingDate}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                        },
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        timeSlotSelect.innerHTML = '<option value="">Select a time slot...</option>';
+                        customTimeInputs.style.display = 'none';
+                        
+                        if (data.success && data.available_slots && data.available_slots.length > 0) {
+                            data.available_slots.forEach(slot => {
+                                const option = document.createElement('option');
+                                const slotValue = `${slot.start_time} - ${slot.end_time}`;
+                                option.value = slotValue;
+                                option.textContent = `${slot.start_time} - ${slot.end_time} (${slot.available}/${slot.capacity} available)`;
+                                // Select current time if it matches
+                                const currentTime = `${document.getElementById('modifyStartTime').value} - ${document.getElementById('modifyEndTime').value}`;
+                                if (slotValue === currentTime) {
+                                    option.selected = true;
+                                }
+                                timeSlotSelect.appendChild(option);
+                            });
+                        }
+                    }
+                } else {
+                    timeSlotSelect.innerHTML = '<option value="">Or select from available slots...</option>';
+                    customTimeInputs.style.display = 'block';
+                    
+                    const response = await fetch(`http://localhost:5000/api/labs/${encodeURIComponent(labName)}/available-slots?date=${bookingDate}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                        },
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success && data.available_slots && data.available_slots.length > 0) {
+                            data.available_slots.forEach(slot => {
+                                const option = document.createElement('option');
+                                option.value = `${slot.start_time} - ${slot.end_time}`;
+                                option.textContent = `${slot.start_time} - ${slot.end_time} (${slot.available}/${slot.capacity} available)`;
+                                timeSlotSelect.appendChild(option);
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading available slots:', error);
+            }
+        }
+
+        function closeModifyBookingModal() {
+            document.getElementById('modifyBookingModal').style.display = 'none';
+            document.getElementById('modifyBookingForm').reset();
+        }
+
+        // Modify booking
+        async function modifyBooking(event) {
+            event.preventDefault();
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+            
+            const bookingId = document.getElementById('modifyBookingId').value;
+            const labName = document.getElementById('modifyLabName').value.trim();
+            const bookingDate = document.getElementById('modifyBookingDate').value;
+            const timeSlot = document.getElementById('modifyTimeSlot').value;
+            const startTimeInput = document.getElementById('modifyStartTime');
+            const endTimeInput = document.getElementById('modifyEndTime');
+            
+            let startTime, endTime;
+            
+            // Get user role
+            const user = localStorage.getItem('user');
+            let userRole = 'student';
+            try {
+                const userData = JSON.parse(user);
+                userRole = userData.role || 'student';
+            } catch (e) {
+                console.error('Error parsing user data:', e);
+            }
+            
+            // If time slot is selected, use it; otherwise use custom time inputs (for admin/faculty)
+            if (timeSlot && timeSlot !== '') {
+                const [start, end] = timeSlot.split(' - ');
+                startTime = start;
+                endTime = end;
+            } else if (userRole === 'admin' || userRole === 'faculty') {
+                startTime = startTimeInput.value;
+                endTime = endTimeInput.value;
+                if (!startTime || !endTime) {
+                    alert('Please select a time slot or enter custom times.');
+                    return;
+                }
+            } else {
+                alert('Please select a time slot from the available options.');
+                return;
+            }
+            
+            if (startTime >= endTime) {
+                alert('End time must be after start time.');
+                return;
+            }
+            
+            const payload = {
+                lab_name: labName,
+                booking_date: bookingDate,
+                start_time: startTime,
+                end_time: endTime
+            };
+            
+            try {
+                const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    showPopup('Entry modified successfully!', 'success');
+                    closeModifyBookingModal();
+                    loadUserBookings();
+                } else {
+                    alert(data.message || 'Failed to modify booking');
+                }
+            } catch (error) {
+                console.error('Error modifying booking:', error);
+                alert('Error modifying booking: ' + error.message);
+            }
+        }
+
+        // Cancel booking
+        async function cancelBooking(bookingId) {
+            if (!confirm('Are you sure you want to cancel this booking?')) {
+                return;
+            }
+            
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    showPopup('Entry deleted successfully!', 'success');
+                    loadUserBookings();
+                } else {
+                    alert(data.message || 'Failed to cancel booking');
+                }
+            } catch (error) {
+                console.error('Error canceling booking:', error);
+                alert('Error canceling booking: ' + error.message);
+            }
+        }
+
+        // Show popup message
+        function showPopup(message, type = 'success') {
+            const popup = document.createElement('div');
+            popup.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'success' ? '#10b981' : '#ef4444'};
+                color: white;
+                padding: 15px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                z-index: 10000;
+                font-weight: 500;
+                animation: slideIn 0.3s ease-out;
+            `;
+            popup.textContent = message;
+            document.body.appendChild(popup);
+            
+            setTimeout(() => {
+                popup.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => {
+                    document.body.removeChild(popup);
+                }, 300);
+            }, 3000);
+        }
+        
+        // Add CSS animations for popup
+        if (!document.getElementById('popupStyles')) {
+            const style = document.createElement('style');
+            style.id = 'popupStyles';
+            style.textContent = `
+                @keyframes slideIn {
+                    from {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                }
+                @keyframes slideOut {
+                    from {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                    to {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
         }
 
         function showMyBookings() {
@@ -1130,6 +1649,14 @@
             
             // Show available labs section
             document.getElementById('availableLabsSection').style.display = 'block';
+            
+            // Initialize date picker to today if not set
+            const datePicker = document.getElementById('availableLabsDatePicker');
+            if (!datePicker.value) {
+                const today = new Date().toISOString().split('T')[0];
+                datePicker.value = today;
+            }
+            
             await loadAvailableLabs();
         }
 
@@ -1153,57 +1680,114 @@
                 return;
             }
 
+            // Get selected date or use today
+            const datePicker = document.getElementById('availableLabsDatePicker');
+            let selectedDate = datePicker.value;
+            if (!selectedDate) {
+                // Set today as default
+                const today = new Date().toISOString().split('T')[0];
+                datePicker.value = today;
+                selectedDate = today;
+            }
+
             try {
-                console.log('Loading available labs...');
-                const response = await fetch('http://localhost:5000/api/labs', {
+                console.log('Loading available labs for date:', selectedDate);
+                const url = `http://localhost:5000/api/labs/available?date=${selectedDate}`;
+                console.log('Fetching from URL:', url);
+                
+                const response = await fetch(url, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
                     },
+                }).catch(error => {
+                    console.error('Network error:', error);
+                    throw new Error(`Network error: ${error.message}. Make sure the Flask server is running on port 5000.`);
                 });
 
                 console.log('Available labs response status:', response.status);
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error', error: 'Could not parse error response' }));
                     console.error('Failed to load labs:', errorData);
-                    throw new Error(errorData.message || 'Failed to load labs');
+                    const errorMsg = errorData.error || errorData.message || `Server returned status ${response.status}`;
+                    throw new Error(errorMsg);
                 }
 
                 const data = await response.json();
                 console.log('Available labs data:', data);
                 const container = document.getElementById('availableLabsContainer');
 
+                // Get user role to determine if admin
+                let isAdmin = false;
+                try {
+                    const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+                    isAdmin = tokenPayload.role === 'admin';
+                } catch (e) {
+                    console.error('Error parsing token:', e);
+                }
+
                 if (data && data.success && data.labs && data.labs.length > 0) {
                     let html = '<table class="bookings-table"><thead><tr>';
-                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th>';
+                    html += '<th>Lab Name</th><th>Status</th><th>Time Slots</th>';
+                    if (isAdmin) {
+                        html += '<th>Capacity</th><th>Students per Slot</th>';
+                    }
                     html += '</tr></thead><tbody>';
 
                     data.labs.forEach(lab => {
-                        // Parse equipment if it's JSON string
-                        let equipmentDisplay = lab.equipment;
-                        try {
-                            const eq = JSON.parse(lab.equipment);
-                            if (Array.isArray(eq)) {
-                                equipmentDisplay = eq.join(', ');
+                        // Status badge
+                        const statusClass = lab.status_badge === 'active' ? 'status-active' : 'status-inactive';
+                        const statusIcon = lab.status_badge === 'active' ? '✓' : '✗';
+                        
+                        // Time slots display
+                        let timeSlotsDisplay = 'No slots available';
+                        if (lab.time_slots && lab.time_slots.length > 0) {
+                            timeSlotsDisplay = lab.time_slots.join(', ');
+                        }
+
+                        // Disabled status
+                        if (lab.disabled) {
+                            timeSlotsDisplay = `<span style="color: #f44336;">Disabled: ${lab.disabled_reason || 'N/A'}</span>`;
+                        }
+
+                        html += `<tr>`;
+                        html += `<td><strong>${lab.lab_name}</strong></td>`;
+                        html += `<td><span class="${statusClass}">${statusIcon} ${lab.status}</span></td>`;
+                        html += `<td>${timeSlotsDisplay}</td>`;
+                        
+                        if (isAdmin) {
+                            // Show capacity
+                            html += `<td>${lab.capacity}</td>`;
+                            
+                            // Show student count per slot
+                            let slotDetailsHtml = 'N/A';
+                            if (lab.availability_slots && lab.availability_slots.length > 0) {
+                                slotDetailsHtml = '<ul style="margin: 0; padding-left: 20px;">';
+                                lab.availability_slots.forEach(slot => {
+                                    const isFull = slot.available <= 0;
+                                    const statusColor = isFull ? '#f44336' : '#4CAF50';
+                                    slotDetailsHtml += `<li style="margin: 5px 0;">
+                                        <strong>${slot.time}:</strong> 
+                                        <span style="color: ${statusColor};">
+                                            ${slot.student_count}/${slot.capacity} students
+                                            ${isFull ? ' (FULL)' : ` (${slot.available} available)`}
+                                        </span>
+                                    </li>`;
+                                });
+                                slotDetailsHtml += '</ul>';
                             }
-                        } catch (e) {
-                            // Not JSON, use as-is
+                            html += `<td>${slotDetailsHtml}</td>`;
                         }
                         
-                        html += `<tr>
-                            <td>${lab.id}</td>
-                            <td>${lab.name}</td>
-                            <td>${lab.capacity}</td>
-                            <td>${equipmentDisplay}</td>
-                            <td>${new Date(lab.created_at).toLocaleDateString()}</td>
-                        </tr>`;
+                        html += `</tr>`;
                     });
 
                     html += '</tbody></table>';
+                    html += `<div style="margin-top: 15px; color: #666; font-size: 14px;">Showing labs for: <strong>${data.date}</strong> (${data.total_labs} labs)</div>`;
                     container.innerHTML = html;
                 } else {
-                    container.innerHTML = '<div class="empty-state">No labs available. Contact an admin to create labs.</div>';
+                    container.innerHTML = '<div class="empty-state">No labs available for the selected date. Contact an admin to create labs or approve bookings.</div>';
                 }
             } catch (error) {
                 console.error('Error loading available labs:', error);

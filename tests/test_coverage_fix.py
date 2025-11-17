@@ -9,7 +9,6 @@ from app import app
 import app as app_module
 
 
-
 @pytest.fixture
 def client(monkeypatch):
     app.config["TESTING"] = True
@@ -133,12 +132,19 @@ def test_admin_override_booking_success(client):
     stu_login = client.post("/api/login", json={"college_id": "STU_OVR", "password": "Student123!@#"})
     stu_token = stu_login.get_json()["token"]
 
-    # Create lab and booking
+    # Create lab and availability slot
     conn = app_module.get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO labs (name, capacity, equipment, created_at) VALUES (?, ?, ?, ?)",
         ("Override Lab", 20, "[]", datetime.datetime.now().isoformat()),
+    )
+    lab_id = cursor.lastrowid
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    day_of_week = app_module.get_day_of_week(future_date)
+    cursor.execute(
+        "INSERT INTO availability_slots (lab_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+        (lab_id, day_of_week, "10:00", "12:00"),
     )
     conn.commit()
 
@@ -147,12 +153,13 @@ def test_admin_override_booking_success(client):
         "/api/bookings",
         json={
             "lab_name": "Override Lab",
-            "booking_date": (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d"),
+            "booking_date": future_date,
             "start_time": "10:00",
             "end_time": "12:00",
         },
         headers={"Authorization": f"Bearer {stu_token}"},
     )
+    assert booking_resp.status_code == 201
     booking_id = booking_resp.get_json()["booking_id"]
 
     # Override booking
