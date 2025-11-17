@@ -100,6 +100,21 @@ def init_db():
         );
         """
     )
+    # Create equipment_availability table for tracking individual equipment availability
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS equipment_availability (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lab_id INTEGER NOT NULL,
+            equipment_name TEXT NOT NULL,
+            is_available TEXT NOT NULL DEFAULT 'yes',
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            FOREIGN KEY (lab_id) REFERENCES labs(id) ON DELETE CASCADE,
+            UNIQUE(lab_id, equipment_name)
+        );
+        """
+    )
     conn.commit()
 
     # Close the connection unless it's an in-memory database. Tests
@@ -712,6 +727,61 @@ def reject_booking(booking_id):
 # --- Lab Management Functions ---
 
 
+def initialize_equipment_availability(cursor, lab_id, equipment_list):
+    """Initialize equipment availability entries for a lab."""
+    created_at = datetime.datetime.now(timezone.utc).isoformat()
+    for equipment_name in equipment_list:
+        try:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO equipment_availability
+                (lab_id, equipment_name, is_available, created_at)
+                VALUES (?, ?, 'yes', ?)
+                """,
+                (lab_id, equipment_name.strip(), created_at),
+            )
+        except sqlite3.Error as e:
+            print(f"Error initializing equipment availability for {equipment_name}: {e}")
+
+
+def sync_equipment_availability(cursor, lab_id, equipment_list):
+    """Sync equipment availability: add new, remove deleted, keep existing."""
+    created_at = datetime.datetime.now(timezone.utc).isoformat()
+
+    # Get current equipment names from availability table
+    cursor.execute(
+        "SELECT equipment_name FROM equipment_availability WHERE lab_id = ?",
+        (lab_id,)
+    )
+    existing_equipment = {row["equipment_name"] for row in cursor.fetchall()}
+
+    # Normalize new equipment list
+    new_equipment = {eq.strip() for eq in equipment_list}
+
+    # Add new equipment
+    for equipment_name in new_equipment:
+        if equipment_name not in existing_equipment:
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO equipment_availability
+                    (lab_id, equipment_name, is_available, created_at)
+                    VALUES (?, ?, 'yes', ?)
+                    """,
+                    (lab_id, equipment_name, created_at),
+                )
+            except sqlite3.Error as e:
+                print(f"Error adding equipment availability for {equipment_name}: {e}")
+
+    # Remove deleted equipment
+    for equipment_name in existing_equipment:
+        if equipment_name not in new_equipment:
+            cursor.execute(
+                "DELETE FROM equipment_availability WHERE lab_id = ? AND equipment_name = ?",
+                (lab_id, equipment_name)
+            )
+
+
 def validate_lab_data(data):
     """
     Validates lab data for creation/update.
@@ -822,6 +892,18 @@ def create_lab():
         conn.commit()
         lab_id = cursor.lastrowid
 
+        # Initialize equipment availability
+        try:
+            equipment_list = json.loads(equipment) if isinstance(equipment, str) else equipment
+            if isinstance(equipment_list, str):
+                # Try to parse as comma-separated
+                equipment_list = [e.strip() for e in equipment_list.split(',') if e.strip()]
+            if isinstance(equipment_list, list):
+                initialize_equipment_availability(cursor, lab_id, equipment_list)
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not initialize equipment availability: {e}")
+
         # Get the created lab
         cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
         lab_row = cursor.fetchone()
@@ -879,11 +961,81 @@ def get_labs():
         rows = cursor.fetchall()
         labs = []
         for row in rows:
+            lab_id = row["id"]
+            # Get equipment availability for this lab
+            cursor.execute(
+                """
+                SELECT equipment_name, is_available
+                FROM equipment_availability
+                WHERE lab_id = ?
+                ORDER BY equipment_name ASC
+                """,
+                (lab_id,)
+            )
+            equipment_availability = []
+            for eq_row in cursor.fetchall():
+                equipment_availability.append({
+                    "equipment_name": eq_row["equipment_name"],
+                    "is_available": eq_row["is_available"]
+                })
+
+            # Auto-initialize equipment availability if missing (for existing labs)
+            if len(equipment_availability) == 0:
+                try:
+                    equipment_str = row["equipment"]
+                    equipment_list = []
+                    try:
+                        equipment_list = json.loads(equipment_str)
+                        if not isinstance(equipment_list, list):
+                            equipment_list = [equipment_str]
+                    except (json.JSONDecodeError, ValueError):
+                        if ',' in equipment_str:
+                            equipment_list = [e.strip() for e in equipment_str.split(',') if e.strip()]
+                        else:
+                            equipment_list = [equipment_str.strip()] if equipment_str.strip() else []
+
+                    if equipment_list:
+                        created_at = datetime.datetime.now(timezone.utc).isoformat()
+                        for equipment_name in equipment_list:
+                            if equipment_name and equipment_name.strip():
+                                try:
+                                    cursor.execute(
+                                        """
+                                        INSERT OR IGNORE INTO equipment_availability
+                                        (lab_id, equipment_name, is_available, created_at)
+                                        VALUES (?, ?, 'yes', ?)
+                                        """,
+                                        (lab_id, equipment_name.strip(), created_at),
+                                    )
+                                except sqlite3.Error:
+                                    pass
+                        conn.commit()
+
+                        # Re-fetch equipment availability
+                        cursor.execute(
+                            """
+                            SELECT equipment_name, is_available
+                            FROM equipment_availability
+                            WHERE lab_id = ?
+                            ORDER BY equipment_name ASC
+                            """,
+                            (lab_id,)
+                        )
+                        equipment_availability = []
+                        for eq_row in cursor.fetchall():
+                            equipment_availability.append({
+                                "equipment_name": eq_row["equipment_name"],
+                                "is_available": eq_row["is_available"]
+                            })
+                except Exception as e:
+                    print(f"Warning: Could not auto-initialize equipment availability for lab {lab_id}: {e}")
+
             labs.append({
                 "id": row["id"],
                 "name": row["name"],
                 "capacity": row["capacity"],
                 "equipment": row["equipment"],
+                "equipment_availability": equipment_availability,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"] if row["updated_at"] else None,
             })
@@ -988,6 +1140,18 @@ def update_lab(lab_id):
         )
         conn.commit()
 
+        # Sync equipment availability
+        try:
+            equipment_list = json.loads(equipment) if isinstance(equipment, str) else equipment
+            if isinstance(equipment_list, str):
+                # Try to parse as comma-separated
+                equipment_list = [e.strip() for e in equipment_list.split(',') if e.strip()]
+            if isinstance(equipment_list, list):
+                sync_equipment_availability(cursor, lab_id, equipment_list)
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not sync equipment availability: {e}")
+
         # Get the updated lab
         cursor.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
         lab_row = cursor.fetchone()
@@ -1066,6 +1230,82 @@ def delete_lab(lab_id):
         return jsonify({"message": "Failed to delete lab.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in delete_lab: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
+    finally:
+        if DATABASE != ":memory:":
+            conn.close()
+
+
+@app.route("/api/labs/<int:lab_id>/equipment/<path:equipment_name>/availability", methods=["PUT"])
+@require_role("admin")
+def update_equipment_availability(lab_id, equipment_name):
+    """Update equipment availability for a specific lab and equipment (admin only)."""
+    from urllib.parse import unquote
+    # Decode URL-encoded equipment name
+    equipment_name = unquote(equipment_name)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
+
+    if "is_available" not in data:
+        return jsonify({"message": "is_available field is required.", "success": False}), 400
+
+    is_available = data["is_available"]
+    if is_available not in ["yes", "no"]:
+        return jsonify({
+            "message": "is_available must be 'yes' or 'no'.",
+            "success": False
+        }), 400
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Check if lab exists
+        cursor.execute("SELECT id FROM labs WHERE id = ?", (lab_id,))
+        if not cursor.fetchone():
+            return jsonify({"message": "Lab not found.", "success": False}), 404
+
+        # Check if equipment availability entry exists
+        cursor.execute(
+            """
+            SELECT id FROM equipment_availability
+            WHERE lab_id = ? AND equipment_name = ?
+            """,
+            (lab_id, equipment_name)
+        )
+        if not cursor.fetchone():
+            return jsonify({
+                "message": f"Equipment '{equipment_name}' not found for this lab.",
+                "success": False
+            }), 404
+
+        # Update equipment availability
+        updated_at = datetime.datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            UPDATE equipment_availability
+            SET is_available = ?, updated_at = ?
+            WHERE lab_id = ? AND equipment_name = ?
+            """,
+            (is_available, updated_at, lab_id, equipment_name)
+        )
+        conn.commit()
+
+        return jsonify({
+            "message": "Equipment availability updated successfully.",
+            "success": True
+        }), 200
+    except sqlite3.Error as e:
+        print(f"Database Error in update_equipment_availability: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Failed to update equipment availability.", "success": False}), 500
+    except Exception as e:
+        print(f"Unexpected error in update_equipment_availability: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
