@@ -1,0 +1,24 @@
+[flake8]
+max-line-length = 120
+exclude = .git,__pycache__,venv,env,build,dist
+per-file-ignores =
+    # Ignore line length for test files
+    tests/*: E501
+    # Ignore unused imports in test files
+    tests/*: F401
+    # Ignore whitespace in blank lines in test files
+    tests/*: W293
+    # Ignore continuation line indentation in test files
+    tests/*: E131
+    # Ignore blank lines containing whitespace in test files
+    tests/*: W293
+    # Ignore too many blank lines in test files
+    tests/*: E303
+    # Ignore missing newline at end of file in test files
+    tests/*: W292
+    # Ignore missing docstrings in test files
+    tests/*: D100,D101,D102,D103,D104,D105,D107
+
+# Disable specific rules for now to focus on critical issues
+disable-noqa = True
+extend-ignore = E226,E302,E305,E402,E501,F403,F405,F541,F811,F841,W293,W504

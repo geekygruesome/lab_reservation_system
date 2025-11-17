@@ -2,7 +2,6 @@ import sqlite3
 import pytest
 from app import app, _generate_token
 
-
 def raise_sqlite_error():
     # Return a fake connection whose cursor() raises sqlite3.Error when used.
     class FakeConn:
@@ -11,7 +10,6 @@ def raise_sqlite_error():
         def close(self):
             pass
     return FakeConn()
-
 
 @pytest.fixture
 def client(monkeypatch):
@@ -91,7 +89,6 @@ def client(monkeypatch):
         yield client_obj
     conn.close()
 
-
 def test_create_booking_db_error(client, monkeypatch):
     # Force DB connection to raise sqlite error to hit exception branch
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)
@@ -103,12 +100,12 @@ def test_create_booking_db_error(client, monkeypatch):
             "booking_date": "2025-01-01",
             "start_time": "10:00",
             "end_time": "11:00",
+            "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 500
     assert resp.get_json().get("success") is False
-
 
 def test_check_availability_db_error(client, monkeypatch):
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)
@@ -120,14 +117,12 @@ def test_check_availability_db_error(client, monkeypatch):
     assert resp.status_code == 500
     assert resp.get_json().get("success") is False
 
-
 def test_get_labs_db_error(client, monkeypatch):
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)
     token = _generate_token({"college_id": "ERR3", "role": "student", "name": "Err"})
     resp = client.get("/api/labs", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 500
     assert resp.get_json().get("success") is False
-
 
 def test_update_equipment_availability_db_error(client, monkeypatch):
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)
@@ -139,7 +134,6 @@ def test_update_equipment_availability_db_error(client, monkeypatch):
     )
     assert resp.status_code == 500
     assert resp.get_json().get("success") is False
-
 
 def test_admin_available_labs_db_error(client, monkeypatch):
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)

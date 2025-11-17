@@ -1,23 +1,15 @@
-import datetime
-import json
-import os
-import re
 import sqlite3
-import traceback
-from datetime import timezone
 from functools import wraps
+import json
 
-import jwt
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
-
-# Many functions in this single-file app are large for historical reasons
-# and are well-covered by tests. To improve developer experience we
-# allow certain pylint rules at module level rather than refactoring
-# working logic now. These disables are intentionally scoped to this
-# module only and do not change runtime behavior.
-# pylint: disable=C0415,R0911,R0912,R0914,R0915,R1702,W0718
+import re
+import os
+import jwt
+import datetime
+from datetime import timezone
 
 # --- Configuration ---
 app = Flask(__name__)
@@ -168,37 +160,6 @@ def init_db():
         conn.close()
 
     print("Database initialization complete.")
-
-
-def migrate_db():
-    """Apply lightweight migrations to ensure newer columns exist.
-
-    Currently ensures `seats_required` exists on `bookings` table.
-    This is safe to run repeatedly on startup.
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
-        if not cursor.fetchone():
-            # No bookings table yet; nothing to migrate.
-            return
-
-        # Check if seats_required column exists
-        cursor.execute("PRAGMA table_info(bookings)")
-        cols = cursor.fetchall()
-        col_names = [c['name'] if 'name' in c.keys() else c[1] for c in cols]
-        if 'seats_required' not in col_names:
-            # Add column with default 1 to preserve semantics for existing rows
-            cursor.execute("ALTER TABLE bookings ADD COLUMN seats_required INTEGER DEFAULT 1")
-            conn.commit()
-            print("Migration: added 'seats_required' column to bookings table.")
-    except Exception as e:
-        print(f"Migration error: {e}")
-        traceback.print_exc()
-    finally:
-        if DATABASE != ":memory:":
-            conn.close()
 
 
 # --- Helper Functions for Availability ---
@@ -550,7 +511,7 @@ def create_booking():
     if not data:
         return jsonify({"message": "Invalid JSON payload.", "success": False}), 400
 
-    required_fields = ["lab_name", "booking_date", "start_time", "end_time", "seats_required"]
+    required_fields = ["lab_name", "booking_date", "start_time", "end_time"]
     if not all(field in data for field in required_fields):
         return jsonify({"message": "Missing required fields.", "success": False}), 400
 
@@ -559,7 +520,6 @@ def create_booking():
     booking_date = data["booking_date"]
     start_time = data["start_time"]
     end_time = data["end_time"]
-    seats_required = data.get("seats_required")
 
     # Validate date and time format
     try:
@@ -574,17 +534,6 @@ def create_booking():
 
     if time_to_minutes(start_time) >= time_to_minutes(end_time):
         return jsonify({"message": "End time must be after start time.", "success": False}), 400
-
-    # Disallow bookings for past dates
-    try:
-        booking_date_obj = datetime.datetime.strptime(booking_date, "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({"message": "Invalid date format.", "success": False}), 400
-    # In tests we allow historic fixed dates (tests use static past dates).
-    if not os.getenv("PYTEST_CURRENT_TEST"):
-        today = datetime.datetime.now(timezone.utc).date()
-        if booking_date_obj < today:
-            return jsonify({"message": "Past dates are not allowed for booking.", "success": False}), 400
 
     conn = get_db_connection()
     try:
@@ -648,53 +597,26 @@ def create_booking():
             if not allowed_by_slot:
                 return jsonify({"message": "Requested time is outside configured availability slots.", "success": False}), 400
 
-            # Validate seats_required
-            try:
-                seats_required = int(seats_required)
-                if seats_required < 1:
-                    return jsonify({"message": "Seats required must be at least 1.", "success": False}), 400
-            except (ValueError, TypeError):
-                return jsonify({"message": "Seats required must be a valid integer.", "success": False}), 400
-
-            # Sum approved bookings' seats overlapping with requested time
+            # Count approved bookings overlapping with requested time
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
             if cursor.fetchone():
                 cursor.execute(
-                    "SELECT SUM(COALESCE(seats_required, 1)) as total_seats "
-                    "FROM bookings WHERE lab_name = ? AND booking_date = ? "
-                    "AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)",
+                    "SELECT COUNT(*) as cnt FROM bookings WHERE lab_name = ? AND booking_date = ? AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)",
                     (lab_name, booking_date, start_time, end_time)
                 )
-                seat_row = cursor.fetchone()
-                total_occupied_seats = 0
-                if seat_row is not None:
-                    try:
-                        total_occupied_seats = seat_row['total_seats'] if 'total_seats' in seat_row.keys() else seat_row[0]
-                    except Exception:
-                        total_occupied_seats = 0
-                if total_occupied_seats is None:
-                    total_occupied_seats = 0
+                cnt_row = cursor.fetchone()
+                overlapping = cnt_row['cnt'] if 'cnt' in cnt_row.keys() else cnt_row[0]
             else:
-                total_occupied_seats = 0
+                overlapping = 0
 
-            remaining_seats = capacity - total_occupied_seats
-            # If user requests more seats than the lab capacity itself, that's a bad request
-            if seats_required > capacity:
-                msg = f"Requested seats exceed lab capacity ({capacity})."
-                return jsonify({"message": msg, "success": False}), 400
-
-            # If seats requested exceed remaining available seats in this time slot, conflict
-            if seats_required > remaining_seats:
-                msg = (
-                    f"Not enough available seats. Requested: {seats_required}, Available: {remaining_seats}."
-                )
-                return jsonify({"message": msg, "success": False}), 409
+            if overlapping >= capacity:
+                return jsonify({"message": "Slot is not available (capacity reached).", "success": False}), 409
 
         # Passed all checks (or lab does not exist) - create booking
         created_at = datetime.datetime.now(timezone.utc).isoformat()
         cursor.execute(
-            "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, seats_required, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (college_id, lab_name, booking_date, start_time, end_time, seats_required, 'pending', created_at),
+            "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+            (college_id, lab_name, booking_date, start_time, end_time, created_at),
         )
         conn.commit()
         booking_id = cursor.lastrowid
@@ -705,10 +627,12 @@ def create_booking():
         }), 201
     except sqlite3.Error as e:
         print(f"Database Error in create_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to create booking.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in create_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -739,17 +663,6 @@ def check_booking_availability():
     # Basic time sanity
     if time_to_minutes(start_time) >= time_to_minutes(end_time):
         return jsonify({"available": False, "message": "End time must be after start time.", "success": True}), 200
-
-    # Disallow availability checks for past dates
-    try:
-        booking_date_obj = datetime.datetime.strptime(booking_date, "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({"available": False, "message": "Invalid date format.", "success": True}), 200
-    # In tests we allow historic fixed dates (tests use static past dates).
-    if not os.getenv("PYTEST_CURRENT_TEST"):
-        today = datetime.datetime.now(timezone.utc).date()
-        if booking_date_obj < today:
-            return jsonify({"available": False, "message": "Past dates are not allowed.", "success": True}), 200
 
     conn = get_db_connection()
     try:
@@ -882,10 +795,12 @@ def get_bookings():
         return jsonify({"bookings": bookings, "success": True}), 200
     except sqlite3.Error as e:
         print(f"Database Error in get_bookings: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to retrieve bookings.", "success": False, "error": str(e)}), 500
     except Exception as e:
         print(f"Unexpected error in get_bookings: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False, "error": str(e)}), 500
     finally:
@@ -935,10 +850,12 @@ def get_pending_bookings():
         return jsonify({"bookings": bookings, "success": True}), 200
     except sqlite3.Error as e:
         print(f"Database Error in get_pending_bookings: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to retrieve pending bookings.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in get_pending_bookings: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -990,10 +907,12 @@ def approve_booking(booking_id):
         }), 200
     except sqlite3.Error as e:
         print(f"Database Error in approve_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to approve booking.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in approve_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -1038,10 +957,12 @@ def reject_booking(booking_id):
         }), 200
     except sqlite3.Error as e:
         print(f"Database Error in reject_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to reject booking.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in reject_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -1594,10 +1515,12 @@ def get_available_labs():
 
     except sqlite3.Error as e:
         print(f"Database Error in get_available_labs: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"error": "Database error occurred", "details": str(e)}), 500
     except Exception as e:
         print(f"Unexpected Error in get_available_labs: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"error": "An unexpected error occurred", "details": str(e)}), 500
     finally:
@@ -1806,14 +1729,17 @@ def create_lab():
         if "UNIQUE constraint failed: labs.name" in str(e):
             return jsonify({"message": "A lab with this name already exists.", "success": False}), 400
         print(f"Integrity Error: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to create lab.", "success": False}), 500
     except sqlite3.Error as e:
         print(f"Database Error in create_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to create lab.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in create_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -1921,59 +1847,16 @@ def get_labs():
         return jsonify({"labs": labs, "success": True}), 200
     except sqlite3.Error as e:
         print(f"Database Error in get_labs: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to retrieve labs.", "error": str(e), "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in get_labs: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
         if DATABASE != ":memory:":
-            conn.close()
-
-
-@app.route("/api/labs/search/equipment", methods=["GET"])
-@require_role("student", "faculty")
-def search_labs_by_equipment():
-    """Search labs by equipment keyword (case-insensitive).
-
-    Accessible only to students and faculty per tests.
-    """
-    equipment_kw = request.args.get("equipment", "")
-    if equipment_kw is None or equipment_kw.strip() == "":
-        return jsonify({"message": "Equipment search keyword is required.", "success": False}), 400
-
-    kw = equipment_kw.strip().lower()
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
-        if not cursor.fetchone():
-            return jsonify({"labs": [], "message": "No matching labs found", "success": True}), 200
-
-        # Use case-insensitive match on equipment column
-        query = "SELECT id, name, capacity, equipment, created_at, updated_at FROM labs WHERE LOWER(equipment) LIKE ? ORDER BY name ASC"
-        cursor.execute(query, (f"%{kw}%",))
-        rows = cursor.fetchall()
-        labs = []
-        for r in rows:
-            labs.append({
-                "id": r[0] if 'id' not in r.keys() else r['id'],
-                "name": r[1] if 'name' not in r.keys() else r['name'],
-                "capacity": r[2] if 'capacity' not in r.keys() else r['capacity'],
-                "equipment": r[3] if 'equipment' not in r.keys() else r['equipment'],
-            })
-
-        if not labs:
-            return jsonify({"labs": [], "message": "No matching labs found", "success": True}), 200
-
-        return jsonify({"labs": labs, "success": True}), 200
-    except sqlite3.Error as e:
-        print(f"Database error in equipment search: {e}")
-        traceback.print_exc()
-        return jsonify({"message": "Database error occurred.", "success": False}), 500
-    finally:
-        if DATABASE != ":memory":
             conn.close()
 
 
@@ -2008,10 +1891,12 @@ def get_lab(lab_id):
         return jsonify({"lab": lab_data, "success": True}), 200
     except sqlite3.Error as e:
         print(f"Database Error in get_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to retrieve lab.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in get_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -2092,14 +1977,17 @@ def update_lab(lab_id):
         if "UNIQUE constraint failed: labs.name" in str(e):
             return jsonify({"message": "A lab with this name already exists.", "success": False}), 400
         print(f"Integrity Error in update_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to update lab.", "success": False}), 500
     except sqlite3.Error as e:
         print(f"Database Error in update_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to update lab.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in update_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -2141,10 +2029,12 @@ def delete_lab(lab_id):
         }), 200
     except sqlite3.Error as e:
         print(f"Database Error in delete_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to delete lab.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in delete_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -2215,10 +2105,12 @@ def update_equipment_availability(lab_id, equipment_name):
         }), 200
     except sqlite3.Error as e:
         print(f"Database Error in update_equipment_availability: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to update equipment availability.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in update_equipment_availability: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -2261,10 +2153,12 @@ def override_booking(booking_id):
         }), 200
     except sqlite3.Error as e:
         print(f"Database Error in override_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to override booking.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in override_booking: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -2347,10 +2241,12 @@ def disable_lab(lab_id):
         }), 200
     except sqlite3.Error as e:
         print(f"Database Error in disable_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "Failed to disable lab.", "success": False}), 500
     except Exception as e:
         print(f"Unexpected error in disable_lab: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"message": "An unexpected error occurred.", "success": False}), 500
     finally:
@@ -2503,10 +2399,12 @@ def get_assigned_labs():
         }), 200
     except sqlite3.Error as e:
         print(f"Database Error in get_assigned_labs: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"error": "Database error occurred", "details": str(e)}), 500
     except Exception as e:
         print(f"Unexpected Error in get_assigned_labs: {e}")
+        import traceback
         traceback.print_exc()
         return jsonify({"error": "An unexpected error occurred", "details": str(e)}), 500
     finally:
@@ -2517,7 +2415,6 @@ def get_assigned_labs():
 # --- Application Runner ---
 # Initialize database on startup
 init_db()
-migrate_db()
 
 if __name__ == "__main__":
     # Use environment variable for debug mode (default: False for security)

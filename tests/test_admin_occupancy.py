@@ -11,7 +11,6 @@ import sqlite3
 
 import app as app_module
 
-
 @pytest.fixture
 def client(monkeypatch):
     """Setup in-memory DB client for testing."""
@@ -94,7 +93,6 @@ def client(monkeypatch):
         yield test_client
 
     conn.close()
-
 
 def test_admin_sees_occupancy_metrics(client):
     """Test that admin endpoint returns occupancy metrics and status badges."""
@@ -207,7 +205,6 @@ def test_admin_sees_occupancy_metrics(client):
     assert slot2['occupancy_label'] == '10/10 free'
 
     print("✅ Admin occupancy metrics test PASSED")
-
 
 def test_admin_sees_disabled_lab_status(client):
     """Test that disabled labs show correct status badge."""

@@ -4,11 +4,8 @@ import pytest
 import datetime
 from datetime import timezone
 
-
 from app import app
 import app as app_module
-
-
 
 @pytest.fixture
 def client(monkeypatch):
@@ -36,6 +33,7 @@ def client(monkeypatch):
             booking_date TEXT NOT NULL,
             start_time TEXT NOT NULL,
             end_time TEXT NOT NULL,
+            seats_required INTEGER DEFAULT 1,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
             updated_at TEXT,
@@ -101,7 +99,6 @@ def client(monkeypatch):
         yield client_obj
     conn.close()
 
-
 def test_admin_override_booking_success(client):
     """Test admin can override/cancel a booking."""
     # Register admin and student
@@ -150,6 +147,7 @@ def test_admin_override_booking_success(client):
             "booking_date": (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d"),
             "start_time": "10:00",
             "end_time": "12:00",
+            "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {stu_token}"},
     )
@@ -169,7 +167,6 @@ def test_admin_override_booking_success(client):
     cursor.execute("SELECT status FROM bookings WHERE id = ?", (booking_id,))
     row = cursor.fetchone()
     assert row["status"] == "cancelled"
-
 
 def test_admin_override_booking_not_found(client):
     """Test admin override booking when booking doesn't exist."""
@@ -193,7 +190,6 @@ def test_admin_override_booking_not_found(client):
     )
     assert r.status_code == 404
     assert "not found" in r.get_json()["message"].lower()
-
 
 def test_admin_disable_lab_success(client):
     """Test admin can disable a lab for a specific date."""
@@ -237,7 +233,6 @@ def test_admin_disable_lab_success(client):
     assert row is not None
     assert row["reason"] == "Maintenance"
 
-
 def test_admin_disable_lab_missing_date(client):
     """Test admin disable lab without date."""
     client.post(
@@ -270,7 +265,6 @@ def test_admin_disable_lab_missing_date(client):
     assert r.status_code == 400
     assert "date" in r.get_json()["message"].lower()
 
-
 def test_admin_disable_lab_invalid_date(client):
     """Test admin disable lab with invalid date format."""
     client.post(
@@ -302,7 +296,6 @@ def test_admin_disable_lab_invalid_date(client):
     )
     assert r.status_code == 400
     assert "date format" in r.get_json()["error"].lower()
-
 
 def test_admin_disable_lab_past_date(client):
     """Test admin disable lab with past date."""
@@ -337,7 +330,6 @@ def test_admin_disable_lab_past_date(client):
     assert r.status_code == 400
     assert "past" in r.get_json()["error"].lower()
 
-
 def test_admin_disable_lab_not_found(client):
     """Test admin disable lab that doesn't exist."""
     client.post(
@@ -361,7 +353,6 @@ def test_admin_disable_lab_not_found(client):
     )
     assert r.status_code == 404
     assert "not found" in r.get_json()["message"].lower()
-
 
 def test_lab_assistant_assigned_labs_no_assignments(client):
     """Test lab assistant with no assigned labs."""
@@ -387,7 +378,6 @@ def test_lab_assistant_assigned_labs_no_assignments(client):
     data = r.get_json()
     assert data["assigned_labs"] == []
     assert "no labs assigned" in data["message"].lower()
-
 
 def test_lab_assistant_assigned_labs_with_assignments(client):
     """Test lab assistant with assigned labs."""
@@ -441,7 +431,6 @@ def test_lab_assistant_assigned_labs_with_assignments(client):
     assert len(data["assigned_labs"]) == 1
     assert data["assigned_labs"][0]["lab_name"] == "Assigned Lab"
     assert len(data["assigned_labs"][0]["availability_slots"]) > 0
-
 
 def test_lab_assistant_assigned_labs_invalid_date(client):
     """Test lab assistant assigned labs with invalid date."""

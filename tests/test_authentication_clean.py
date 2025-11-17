@@ -3,7 +3,6 @@ import pytest
 
 from app import app, init_db
 
-
 @pytest.fixture
 def client(monkeypatch):
     app.config["TESTING"] = True
@@ -30,6 +29,7 @@ def client(monkeypatch):
             booking_date TEXT NOT NULL,
             start_time TEXT NOT NULL,
             end_time TEXT NOT NULL,
+            seats_required INTEGER DEFAULT 1,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
             updated_at TEXT,
@@ -82,7 +82,6 @@ def client(monkeypatch):
         yield client_obj
     conn.close()
 
-
 def test_registration_and_login_flow(client):
     # Register
     r = client.post(
@@ -107,12 +106,10 @@ def test_registration_and_login_flow(client):
     assert m.status_code == 200
     assert m.get_json()["college_id"] == "X1"
 
-
 def test_invalid_json_returns_json(client):
     r = client.post("/api/register", data="notjson", content_type="application/json")
     assert r.status_code == 400
     assert r.get_json() is not None
-
 
 def test_init_db(monkeypatch):
     conn = sqlite3.connect(":memory:")
@@ -122,7 +119,6 @@ def test_init_db(monkeypatch):
     cur = conn.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
     assert cur.fetchone() is not None
-
 
 def test_registration_duplicate_email(client):
     client.post(
@@ -147,7 +143,6 @@ def test_registration_duplicate_email(client):
     )
     assert r.status_code == 400
 
-
 def test_registration_duplicate_college_id(client):
     client.post(
         "/api/register",
@@ -171,7 +166,6 @@ def test_registration_duplicate_college_id(client):
     )
     assert r.status_code == 400
 
-
 def test_login_invalid_password(client):
     client.post(
         "/api/register",
@@ -186,16 +180,13 @@ def test_login_invalid_password(client):
     r = client.post("/api/login", json={"college_id": "LP1", "password": "WrongPass"})
     assert r.status_code == 401
 
-
 def test_login_nonexistent_user(client):
     r = client.post("/api/login", json={"college_id": "NOUSER", "password": "x"})
     assert r.status_code == 401
 
-
 def test_me_with_invalid_token(client):
     r = client.get("/api/me", headers={"Authorization": "Bearer bad.token.here"})
     assert r.status_code == 401
-
 
 def test_token_expired(client):
     # craft an expired token
@@ -213,7 +204,6 @@ def test_token_expired(client):
     r = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 401
 
-
 def test_registration_missing_fields(client):
     # Missing college_id
     r = client.post(
@@ -227,7 +217,6 @@ def test_registration_missing_fields(client):
     )
     assert r.status_code == 400
     assert "required" in r.get_json()["message"].lower()
-
 
 def test_registration_invalid_email(client):
     r = client.post(
@@ -243,7 +232,6 @@ def test_registration_invalid_email(client):
     assert r.status_code == 400
     assert "email" in r.get_json()["message"].lower()
 
-
 def test_registration_short_password(client):
     r = client.post(
         "/api/register",
@@ -257,7 +245,6 @@ def test_registration_short_password(client):
     )
     assert r.status_code == 400
     assert "password" in r.get_json()["message"].lower()
-
 
 def test_registration_password_no_number(client):
     r = client.post(
@@ -273,7 +260,6 @@ def test_registration_password_no_number(client):
     assert r.status_code == 400
     assert "number" in r.get_json()["message"].lower()
 
-
 def test_registration_password_no_symbol(client):
     r = client.post(
         "/api/register",
@@ -288,31 +274,25 @@ def test_registration_password_no_symbol(client):
     assert r.status_code == 400
     assert "symbol" in r.get_json()["message"].lower()
 
-
 def test_login_missing_college_id(client):
     r = client.post("/api/login", json={"password": "test"})
     assert r.status_code == 400
-
 
 def test_login_missing_password(client):
     r = client.post("/api/login", json={"college_id": "C1"})
     assert r.status_code == 400
 
-
 def test_login_empty_json(client):
     r = client.post("/api/login", json={})
     assert r.status_code == 400
-
 
 def test_me_missing_auth_header(client):
     r = client.get("/api/me")
     assert r.status_code == 401
 
-
 def test_me_invalid_bearer_format(client):
     r = client.get("/api/me", headers={"Authorization": "NotBearer token"})
     assert r.status_code == 401
-
 
 def test_me_with_valid_token(client):
     # Register and login to get a valid token
@@ -334,7 +314,6 @@ def test_me_with_valid_token(client):
     assert r.get_json()["role"] == "admin"
     assert r.get_json()["name"] == "ME"
 
-
 def test_registration_success_creates_user(client):
     r = client.post(
         "/api/register",
@@ -349,7 +328,6 @@ def test_registration_success_creates_user(client):
     assert r.status_code == 201
     assert "success" in r.get_json()
     assert r.get_json()["success"] is True
-
 
 def test_login_response_includes_user_info(client):
     client.post(
@@ -369,7 +347,6 @@ def test_login_response_includes_user_info(client):
     assert data["role"] == "student"
     assert data["name"] == "UserInfo"
 
-
 # --- Role-Based Access Tests ---
 
 def test_registration_with_lab_assistant_role(client):
@@ -386,7 +363,6 @@ def test_registration_with_lab_assistant_role(client):
     assert r.status_code == 201
     assert r.get_json()["success"] is True
 
-
 def test_registration_with_invalid_role(client):
     r = client.post(
         "/api/register",
@@ -401,7 +377,6 @@ def test_registration_with_invalid_role(client):
     assert r.status_code == 400
     assert "role" in r.get_json()["message"].lower()
 
-
 # --- Booking Tests ---
 
 def test_create_booking_requires_auth(client):
@@ -412,10 +387,10 @@ def test_create_booking_requires_auth(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
     )
     assert r.status_code == 401
-
 
 def test_create_booking_success(client):
     # Register and login
@@ -440,13 +415,13 @@ def test_create_booking_success(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 201
     assert r.get_json()["success"] is True
     assert "booking_id" in r.get_json()
-
 
 def test_create_booking_missing_fields(client):
     # Register and login
@@ -471,7 +446,6 @@ def test_create_booking_missing_fields(client):
     )
     assert r.status_code == 400
 
-
 def test_create_booking_invalid_date_format(client):
     # Register and login
     client.post(
@@ -495,16 +469,15 @@ def test_create_booking_invalid_date_format(client):
             "booking_date": "invalid-date",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
 
-
 def test_get_bookings_requires_auth(client):
     r = client.get("/api/bookings")
     assert r.status_code == 401
-
 
 def test_get_bookings_student_sees_only_own(client):
     # Register student
@@ -529,6 +502,7 @@ def test_get_bookings_student_sees_only_own(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -538,7 +512,6 @@ def test_get_bookings_student_sees_only_own(client):
     assert r.status_code == 200
     assert len(r.get_json()["bookings"]) == 1
     assert r.get_json()["bookings"][0]["college_id"] == "S1"
-
 
 def test_get_pending_bookings_requires_admin(client):
     # Register student
@@ -558,7 +531,6 @@ def test_get_pending_bookings_requires_admin(client):
     # Try to access admin endpoint
     r = client.get("/api/bookings/pending", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
-
 
 def test_get_pending_bookings_admin_success(client):
     # Register admin
@@ -596,6 +568,7 @@ def test_get_pending_bookings_admin_success(client):
             "booking_date": "2024-12-26",
             "start_time": "14:00",
             "end_time": "16:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {student_token}"},
     )
@@ -605,7 +578,6 @@ def test_get_pending_bookings_admin_success(client):
     assert r.status_code == 200
     assert len(r.get_json()["bookings"]) == 1
     assert r.get_json()["bookings"][0]["status"] == "pending"
-
 
 def test_approve_booking_requires_admin(client):
     # Register student
@@ -625,7 +597,6 @@ def test_approve_booking_requires_admin(client):
     # Try to approve (should fail)
     r = client.post("/api/bookings/1/approve", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
-
 
 def test_approve_booking_admin_success(client):
     # Register admin
@@ -663,6 +634,7 @@ def test_approve_booking_admin_success(client):
             "booking_date": "2024-12-27",
             "start_time": "09:00",
             "end_time": "11:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {student_token}"},
     )
@@ -682,7 +654,6 @@ def test_approve_booking_admin_success(client):
     approved_booking = next((b for b in bookings if b["id"] == booking_id), None)
     assert approved_booking is not None
     assert approved_booking["status"] == "approved"
-
 
 def test_reject_booking_admin_success(client):
     # Register admin
@@ -720,6 +691,7 @@ def test_reject_booking_admin_success(client):
             "booking_date": "2024-12-28",
             "start_time": "13:00",
             "end_time": "15:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {student_token}"},
     )
@@ -739,7 +711,6 @@ def test_reject_booking_admin_success(client):
     rejected_booking = next((b for b in bookings if b["id"] == booking_id), None)
     assert rejected_booking is not None
     assert rejected_booking["status"] == "rejected"
-
 
 def test_approve_nonexistent_booking(client):
     # Register admin
@@ -762,7 +733,6 @@ def test_approve_nonexistent_booking(client):
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 404
-
 
 def test_get_bookings_admin_sees_all(client):
     # Register admin
@@ -803,6 +773,7 @@ def test_get_bookings_admin_sees_all(client):
                 "booking_date": "2024-12-29",
                 "start_time": "10:00",
                 "end_time": "12:00",
+                "seats_required": 1,
             },
             headers={"Authorization": f"Bearer {student_token}"},
         )
@@ -811,7 +782,6 @@ def test_get_bookings_admin_sees_all(client):
     r = client.get("/api/bookings", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200
     assert len(r.get_json()["bookings"]) == 2
-
 
 def test_init_db_creates_bookings_table(monkeypatch):
     conn = sqlite3.connect(":memory:")
@@ -822,7 +792,6 @@ def test_init_db_creates_bookings_table(monkeypatch):
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
     assert cur.fetchone() is not None
 
-
 def test_init_db_creates_labs_table(monkeypatch):
     conn = sqlite3.connect(":memory:")
     monkeypatch.setattr("app.get_db_connection", lambda: conn)
@@ -831,7 +800,6 @@ def test_init_db_creates_labs_table(monkeypatch):
     cur = conn.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='labs'")
     assert cur.fetchone() is not None
-
 
 def test_init_db_creates_availability_slots_table(monkeypatch):
     conn = sqlite3.connect(":memory:")
@@ -842,9 +810,7 @@ def test_init_db_creates_availability_slots_table(monkeypatch):
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='availability_slots'")
     assert cur.fetchone() is not None
 
-
 # --- Lab Management Tests ---
-
 
 def test_create_lab_requires_admin(client):
     # Register student
@@ -872,7 +838,6 @@ def test_create_lab_requires_admin(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 403
-
 
 def test_create_lab_admin_success(client):
     # Register admin
@@ -904,7 +869,6 @@ def test_create_lab_admin_success(client):
     assert r.get_json()["lab"]["name"] == "Computer Lab 1"
     assert r.get_json()["lab"]["capacity"] == 30
 
-
 def test_create_lab_missing_fields(client):
     # Register admin
     client.post(
@@ -927,7 +891,6 @@ def test_create_lab_missing_fields(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
-
 
 def test_create_lab_invalid_capacity(client):
     # Register admin
@@ -955,7 +918,6 @@ def test_create_lab_invalid_capacity(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
-
 
 def test_create_lab_duplicate_name(client):
     # Register admin
@@ -995,11 +957,9 @@ def test_create_lab_duplicate_name(client):
     )
     assert r.status_code == 400
 
-
 def test_get_labs_requires_auth(client):
     r = client.get("/api/labs")
     assert r.status_code == 401
-
 
 def test_get_labs_success(client):
     # Register admin and create lab
@@ -1042,7 +1002,6 @@ def test_get_labs_success(client):
     assert r.get_json()["success"] is True
     assert len(r.get_json()["labs"]) == 2
 
-
 def test_get_lab_by_id_success(client):
     # Register admin and create lab
     client.post(
@@ -1076,7 +1035,6 @@ def test_get_lab_by_id_success(client):
     assert r.get_json()["lab"]["id"] == lab_id
     assert r.get_json()["lab"]["name"] == "Specific Lab"
 
-
 def test_get_lab_by_id_not_found(client):
     # Register admin
     client.post(
@@ -1095,7 +1053,6 @@ def test_get_lab_by_id_not_found(client):
     # Get nonexistent lab
     r = client.get("/api/labs/99999", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 404
-
 
 def test_update_lab_requires_admin(client):
     # Register student
@@ -1123,7 +1080,6 @@ def test_update_lab_requires_admin(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code in [401, 403]
-
 
 def test_update_lab_admin_success(client):
     # Register admin
@@ -1167,7 +1123,6 @@ def test_update_lab_admin_success(client):
     assert r.get_json()["lab"]["name"] == "Updated Lab"
     assert r.get_json()["lab"]["capacity"] == 35
 
-
 def test_update_lab_not_found(client):
     # Register admin
     client.post(
@@ -1195,7 +1150,6 @@ def test_update_lab_not_found(client):
     )
     assert r.status_code == 404
 
-
 def test_delete_lab_requires_admin(client):
     # Register student
     client.post(
@@ -1214,7 +1168,6 @@ def test_delete_lab_requires_admin(client):
     # Try to delete (should fail)
     r = client.delete("/api/labs/1", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
-
 
 def test_delete_lab_admin_success(client):
     # Register admin
@@ -1251,7 +1204,6 @@ def test_delete_lab_admin_success(client):
     # Verify lab is deleted
     get_resp = client.get(f"/api/labs/{lab_id}", headers={"Authorization": f"Bearer {token}"})
     assert get_resp.status_code == 404
-
 
 def test_delete_lab_cascades_availability_slots(client):
     # Register admin
@@ -1317,7 +1269,6 @@ def test_delete_lab_cascades_availability_slots(client):
         # Don't close - the client fixture manages the connection
         pass
 
-
 def test_create_lab_with_json_equipment_string(client):
     # Register admin
     client.post(
@@ -1345,7 +1296,6 @@ def test_create_lab_with_json_equipment_string(client):
     )
     assert r.status_code == 201
     assert r.get_json()["success"] is True
-
 
 def test_update_lab_maintains_created_at(client):
     # Register admin
@@ -1388,7 +1338,6 @@ def test_update_lab_maintains_created_at(client):
     assert update_resp.get_json()["lab"]["created_at"] == created_at
     assert update_resp.get_json()["lab"]["updated_at"] is not None
 
-
 def test_static_routes(client):
     """Test static file routes."""
     # Test home route
@@ -1410,7 +1359,6 @@ def test_static_routes(client):
     # Test home alias
     r = client.get("/home")
     assert r.status_code == 200
-
 
 def test_get_labs_empty_table(client):
     """Test getting labs when table doesn't exist yet."""
@@ -1434,7 +1382,6 @@ def test_get_labs_empty_table(client):
     assert r.get_json()["success"] is True
     assert isinstance(r.get_json()["labs"], list)
 
-
 def test_get_lab_table_not_exists(client):
     """Test getting specific lab when table doesn't exist."""
     # Register and login
@@ -1454,7 +1401,6 @@ def test_get_lab_table_not_exists(client):
     # Try to get lab when table doesn't exist
     r = client.get("/api/labs/1", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 404
-
 
 def test_update_lab_table_not_exists(client):
     """Test updating lab when table doesn't exist."""
@@ -1484,7 +1430,6 @@ def test_update_lab_table_not_exists(client):
     )
     assert r.status_code == 404
 
-
 def test_delete_lab_table_not_exists(client):
     """Test deleting lab when table doesn't exist."""
     # Register admin
@@ -1504,7 +1449,6 @@ def test_delete_lab_table_not_exists(client):
     # Try to delete lab when table doesn't exist
     r = client.delete("/api/labs/1", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 404
-
 
 def test_get_bookings_empty(client):
     """Test getting bookings when user has no bookings."""
@@ -1527,7 +1471,6 @@ def test_get_bookings_empty(client):
     assert r.status_code == 200
     assert r.get_json()["success"] is True
     assert isinstance(r.get_json()["bookings"], list)
-
 
 def test_create_lab_empty_equipment_list(client):
     """Test creating lab with empty equipment list should fail."""
@@ -1558,7 +1501,6 @@ def test_create_lab_empty_equipment_list(client):
     assert r.status_code == 400
     assert "equipment" in r.get_json()["message"].lower()
 
-
 def test_create_booking_invalid_time_format(client):
     """Test booking creation with invalid time format."""
     client.post(
@@ -1582,12 +1524,12 @@ def test_create_booking_invalid_time_format(client):
             "booking_date": "2024-12-25",
             "start_time": "invalid-time",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
     assert "time format" in r.get_json()["message"].lower()
-
 
 def test_create_lab_name_too_long(client):
     """Test lab creation with name exceeding 100 characters."""
@@ -1617,7 +1559,6 @@ def test_create_lab_name_too_long(client):
     assert r.status_code == 400
     assert "100 characters" in r.get_json()["message"]
 
-
 def test_create_lab_capacity_too_high(client):
     """Test lab creation with capacity exceeding 1000."""
     client.post(
@@ -1644,7 +1585,6 @@ def test_create_lab_capacity_too_high(client):
     )
     assert r.status_code == 400
     assert "1000" in r.get_json()["message"]
-
 
 def test_create_lab_invalid_equipment_type(client):
     """Test lab creation with invalid equipment type (not list or string)."""
@@ -1673,7 +1613,6 @@ def test_create_lab_invalid_equipment_type(client):
     assert r.status_code == 400
     assert "equipment" in r.get_json()["message"].lower()
 
-
 def test_create_lab_invalid_capacity_type(client):
     """Test lab creation with invalid capacity type."""
     client.post(
@@ -1701,7 +1640,6 @@ def test_create_lab_invalid_capacity_type(client):
     assert r.status_code == 400
     assert "capacity" in r.get_json()["message"].lower()
 
-
 def test_me_endpoint_with_expired_token(client):
     """Test /api/me endpoint with expired token."""
     import jwt
@@ -1724,13 +1662,11 @@ def test_me_endpoint_with_expired_token(client):
     assert r.status_code == 401
     assert "expired" in r.get_json()["message"].lower()
 
-
 def test_me_endpoint_with_invalid_token(client):
     """Test /api/me endpoint with invalid token."""
     r = client.get("/api/me", headers={"Authorization": "Bearer invalid_token_12345"})
     assert r.status_code == 401
     assert "invalid" in r.get_json()["message"].lower()
-
 
 def test_create_lab_name_empty_string(client):
     """Test lab creation with empty name string."""
@@ -1758,7 +1694,6 @@ def test_create_lab_name_empty_string(client):
     )
     assert r.status_code == 400
     assert "name" in r.get_json()["message"].lower()
-
 
 def test_create_lab_equipment_invalid_json(client):
     """Test lab creation with invalid JSON string for equipment."""
@@ -1789,7 +1724,6 @@ def test_create_lab_equipment_invalid_json(client):
     # The validation accepts non-empty strings that aren't valid JSON
     assert r.status_code in [201, 400]  # Either succeeds or fails validation
 
-
 def test_create_lab_equipment_json_not_array(client):
     """Test lab creation with JSON that's not an array."""
     client.post(
@@ -1816,7 +1750,6 @@ def test_create_lab_equipment_json_not_array(client):
     )
     assert r.status_code == 400
     assert "equipment" in r.get_json()["message"].lower()
-
 
 def test_create_lab_capacity_zero(client):
     """Test lab creation with capacity of 0."""
@@ -1847,7 +1780,6 @@ def test_create_lab_capacity_zero(client):
     # Should fail validation for capacity being 0 or invalid
     assert "capacity" in r.get_json()["message"].lower() or "positive" in r.get_json()["message"].lower()
 
-
 def test_create_lab_capacity_negative(client):
     """Test lab creation with negative capacity."""
     client.post(
@@ -1875,7 +1807,6 @@ def test_create_lab_capacity_negative(client):
     assert r.status_code == 400
     assert "positive" in r.get_json()["message"].lower()
 
-
 def test_create_booking_invalid_end_time_format(client):
     """Test booking creation with invalid end time format."""
     client.post(
@@ -1898,12 +1829,12 @@ def test_create_booking_invalid_end_time_format(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "invalid-time",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
     assert "time format" in r.get_json()["message"].lower()
-
 
 def test_update_lab_duplicate_name_different_lab(client):
     """Test updating lab with a name that already exists for another lab."""
@@ -1959,7 +1890,6 @@ def test_update_lab_duplicate_name_different_lab(client):
     assert r.status_code == 400
     assert "already exists" in r.get_json()["message"].lower()
 
-
 def test_get_lab_by_id_success_with_data(client):
     """Test getting a specific lab by ID when it exists."""
     # Register admin
@@ -1995,7 +1925,6 @@ def test_get_lab_by_id_success_with_data(client):
     assert r2.get_json()["success"] is True
     assert r2.get_json()["lab"]["id"] == lab_id
     assert r2.get_json()["lab"]["name"] == "Test Lab Get"
-
 
 def test_approve_booking_already_processed(client):
     """Test approving a booking that's already been processed."""
@@ -2033,6 +1962,7 @@ def test_approve_booking_already_processed(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {stu_token}"},
     )
@@ -2052,7 +1982,6 @@ def test_approve_booking_already_processed(client):
     )
     assert r3.status_code == 404
     assert "already processed" in r3.get_json()["message"].lower()
-
 
 def test_reject_booking_already_processed(client):
     """Test rejecting a booking that's already been processed."""
@@ -2090,6 +2019,7 @@ def test_reject_booking_already_processed(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {stu_token}"},
     )
@@ -2109,7 +2039,6 @@ def test_reject_booking_already_processed(client):
     )
     assert r3.status_code == 404
     assert "already processed" in r3.get_json()["message"].lower()
-
 
 def test_create_lab_equipment_empty_string_after_strip(client):
     """Test lab creation with equipment that's empty after stripping."""
@@ -2138,7 +2067,6 @@ def test_create_lab_equipment_empty_string_after_strip(client):
     assert r.status_code == 400
     assert "equipment" in r.get_json()["message"].lower()
 
-
 def test_create_lab_name_exactly_100_chars(client):
     """Test lab creation with name exactly 100 characters (should pass)."""
     client.post(
@@ -2166,7 +2094,6 @@ def test_create_lab_name_exactly_100_chars(client):
     )
     assert r.status_code == 201
 
-
 def test_create_lab_capacity_exactly_1000(client):
     """Test lab creation with capacity exactly 1000 (should pass)."""
     client.post(
@@ -2193,7 +2120,6 @@ def test_create_lab_capacity_exactly_1000(client):
     )
     assert r.status_code == 201
 
-
 def test_create_lab_equipment_comma_separated(client):
     """Test lab creation with comma-separated equipment string."""
     client.post(
@@ -2219,7 +2145,6 @@ def test_create_lab_equipment_comma_separated(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 201
-
 
 def test_update_lab_same_name_allowed(client):
     """Test updating lab with the same name (should be allowed)."""
@@ -2261,7 +2186,6 @@ def test_update_lab_same_name_allowed(client):
     assert r2.status_code == 200
     assert r2.get_json()["success"] is True
 
-
 def test_create_booking_missing_lab_name(client):
     """Test booking creation with missing lab_name field."""
     client.post(
@@ -2284,12 +2208,12 @@ def test_create_booking_missing_lab_name(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
     assert "required" in r.get_json()["message"].lower()
-
 
 def test_create_booking_missing_booking_date(client):
     """Test booking creation with missing booking_date field."""
@@ -2319,7 +2243,6 @@ def test_create_booking_missing_booking_date(client):
     assert r.status_code == 400
     assert "required" in r.get_json()["message"].lower()
 
-
 def test_create_booking_missing_start_time(client):
     """Test booking creation with missing start_time field."""
     client.post(
@@ -2348,7 +2271,6 @@ def test_create_booking_missing_start_time(client):
     assert r.status_code == 400
     assert "required" in r.get_json()["message"].lower()
 
-
 def test_create_booking_missing_end_time(client):
     """Test booking creation with missing end_time field."""
     client.post(
@@ -2376,7 +2298,6 @@ def test_create_booking_missing_end_time(client):
     )
     assert r.status_code == 400
     assert "required" in r.get_json()["message"].lower()
-
 
 def test_update_lab_name_exactly_100_chars(client):
     """Test updating lab with name exactly 100 characters."""
@@ -2416,7 +2337,6 @@ def test_update_lab_name_exactly_100_chars(client):
     )
     assert r2.status_code == 200
 
-
 def test_update_lab_capacity_exactly_1000(client):
     """Test updating lab with capacity exactly 1000."""
     client.post(
@@ -2454,7 +2374,6 @@ def test_update_lab_capacity_exactly_1000(client):
     )
     assert r2.status_code == 200
 
-
 def test_update_lab_equipment_comma_separated(client):
     """Test updating lab with comma-separated equipment."""
     client.post(
@@ -2491,7 +2410,6 @@ def test_update_lab_equipment_comma_separated(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r2.status_code == 200
-
 
 def test_update_lab_name_empty_string(client):
     """Test updating lab with empty name string."""
@@ -2531,7 +2449,6 @@ def test_update_lab_name_empty_string(client):
     assert r2.status_code == 400
     assert "name" in r2.get_json()["message"].lower()
 
-
 def test_update_lab_capacity_negative(client):
     """Test updating lab with negative capacity."""
     client.post(
@@ -2570,7 +2487,6 @@ def test_update_lab_capacity_negative(client):
     assert r2.status_code == 400
     assert "positive" in r2.get_json()["message"].lower()
 
-
 def test_update_lab_capacity_too_high(client):
     """Test updating lab with capacity exceeding 1000."""
     client.post(
@@ -2608,7 +2524,6 @@ def test_update_lab_capacity_too_high(client):
     )
     assert r2.status_code == 400
     assert "1000" in r2.get_json()["message"]
-
 
 def test_update_lab_name_too_long(client):
     """Test updating lab with name exceeding 100 characters."""
@@ -2649,7 +2564,6 @@ def test_update_lab_name_too_long(client):
     assert r2.status_code == 400
     assert "100 characters" in r2.get_json()["message"]
 
-
 def test_update_lab_equipment_empty_list(client):
     """Test updating lab with empty equipment list."""
     client.post(
@@ -2687,7 +2601,6 @@ def test_update_lab_equipment_empty_list(client):
     )
     assert r2.status_code == 400
     assert "equipment" in r2.get_json()["message"].lower()
-
 
 def test_update_lab_equipment_json_not_array(client):
     """Test updating lab with JSON equipment that is not an array."""
@@ -2727,7 +2640,6 @@ def test_update_lab_equipment_json_not_array(client):
     assert r2.status_code == 400
     assert "equipment" in r2.get_json()["message"].lower()
 
-
 def test_update_lab_invalid_capacity_type(client):
     """Test updating lab with invalid capacity type."""
     client.post(
@@ -2765,7 +2677,6 @@ def test_update_lab_invalid_capacity_type(client):
     )
     assert r2.status_code == 400
     assert "capacity" in r2.get_json()["message"].lower()
-
 
 def test_update_lab_invalid_equipment_type(client):
     """Test updating lab with invalid equipment type."""
@@ -2805,7 +2716,6 @@ def test_update_lab_invalid_equipment_type(client):
     assert r2.status_code == 400
     assert "equipment" in r2.get_json()["message"].lower()
 
-
 def test_create_booking_invalid_json_payload(client):
     """Test create booking with invalid JSON payload."""
     # Register and login
@@ -2831,7 +2741,6 @@ def test_create_booking_invalid_json_payload(client):
     )
     assert r.status_code == 400
     assert "Invalid JSON" in r.get_json()["message"]
-
 
 def test_create_lab_invalid_json_payload(client):
     """Test create lab with invalid JSON payload."""
@@ -2859,7 +2768,6 @@ def test_create_lab_invalid_json_payload(client):
     assert r.status_code == 400
     assert "Invalid JSON" in r.get_json()["message"]
 
-
 def test_update_lab_invalid_json_payload(client):
     """Test update lab with invalid JSON payload."""
     # Register admin
@@ -2886,7 +2794,6 @@ def test_update_lab_invalid_json_payload(client):
     assert r.status_code == 400
     assert "Invalid JSON" in r.get_json()["message"]
 
-
 def test_validate_lab_data_invalid_equipment_type():
     """Test validate_lab_data with invalid equipment type (not list or string)."""
     from app import validate_lab_data
@@ -2901,7 +2808,6 @@ def test_validate_lab_data_invalid_equipment_type():
     assert not is_valid
     assert any("equipment" in error.lower() for error in errors)
 
-
 def test_validate_lab_data_equipment_string_empty_after_strip():
     """Test validate_lab_data with equipment string that's empty after strip."""
     from app import validate_lab_data
@@ -2915,7 +2821,6 @@ def test_validate_lab_data_equipment_string_empty_after_strip():
     assert not is_valid
     assert any("equipment" in error.lower() for error in errors)
 
-
 def test_validate_lab_data_equipment_json_not_array():
     """Test validate_lab_data with JSON equipment that's not an array."""
     from app import validate_lab_data
@@ -2928,7 +2833,6 @@ def test_validate_lab_data_equipment_json_not_array():
     is_valid, errors = validate_lab_data(data)
     assert not is_valid
     assert any("equipment" in error.lower() for error in errors)
-
 
 def test_validate_lab_data_equipment_invalid_json():
     """Test validate_lab_data with invalid JSON string for equipment."""
@@ -2946,7 +2850,6 @@ def test_validate_lab_data_equipment_invalid_json():
     assert is_valid
     assert len(errors) == 0
 
-
 def test_validate_lab_data_equipment_empty_list():
     """Test validate_lab_data with empty equipment list."""
     from app import validate_lab_data
@@ -2959,7 +2862,6 @@ def test_validate_lab_data_equipment_empty_list():
     is_valid, errors = validate_lab_data(data)
     assert not is_valid
     assert any("equipment" in error.lower() for error in errors)
-
 
 def test_validate_lab_data_equipment_valid_json_array():
     """Test validate_lab_data with valid JSON array string."""
@@ -2974,7 +2876,6 @@ def test_validate_lab_data_equipment_valid_json_array():
     assert is_valid
     assert len(errors) == 0
 
-
 def test_validate_lab_data_equipment_valid_list():
     """Test validate_lab_data with valid list."""
     from app import validate_lab_data
@@ -2987,7 +2888,6 @@ def test_validate_lab_data_equipment_valid_list():
     is_valid, errors = validate_lab_data(data)
     assert is_valid
     assert len(errors) == 0
-
 
 def test_validate_lab_data_equipment_comma_separated_string():
     """Test validate_lab_data with comma-separated string (non-JSON)."""
@@ -3002,7 +2902,6 @@ def test_validate_lab_data_equipment_comma_separated_string():
     # Should be valid as it's a non-empty string
     assert is_valid
     assert len(errors) == 0
-
 
 def test_token_bytes_decode_coverage(client, monkeypatch):
     """Test token generation when JWT returns bytes (coverage for line 230)."""
@@ -3025,7 +2924,6 @@ def test_token_bytes_decode_coverage(client, monkeypatch):
     assert isinstance(token, str)
     assert len(token) > 0
 
-
 def test_app_main_block_coverage():
     """Test app main block execution (coverage for lines 1074-1075)."""
     import os
@@ -3045,7 +2943,6 @@ def test_app_main_block_coverage():
     # Clean up
     if 'FLASK_DEBUG' in os.environ:
         del os.environ['FLASK_DEBUG']
-
 
 def test_equipment_empty_list_direct_list_via_update(client):
     """Test equipment validation with empty list via update (coverage for line 765)."""
@@ -3090,7 +2987,6 @@ def test_equipment_empty_list_direct_list_via_update(client):
     response_data = r.get_json()
     assert "equipment" in response_data["message"].lower() or "empty" in response_data["message"].lower()
 
-
 def test_validate_lab_data_missing_name():
     """Test validate_lab_data with missing name (coverage for lines 727-728)."""
     from app import validate_lab_data
@@ -3102,7 +2998,6 @@ def test_validate_lab_data_missing_name():
     is_valid, errors = validate_lab_data(data)
     assert not is_valid
     assert any("required" in error.lower() for error in errors)
-
 
 def test_validate_lab_data_missing_capacity():
     """Test validate_lab_data with missing capacity (coverage for lines 730-731)."""
@@ -3116,7 +3011,6 @@ def test_validate_lab_data_missing_capacity():
     assert not is_valid
     assert any("required" in error.lower() for error in errors)
 
-
 def test_validate_lab_data_missing_equipment():
     """Test validate_lab_data with missing equipment (coverage for lines 733-734)."""
     from app import validate_lab_data
@@ -3128,7 +3022,6 @@ def test_validate_lab_data_missing_equipment():
     is_valid, errors = validate_lab_data(data)
     assert not is_valid
     assert any("required" in error.lower() for error in errors)
-
 
 def test_get_labs_table_not_exists_for_get_all(client, monkeypatch):
     """Test get labs when table doesn't exist (coverage for line 876)."""
@@ -3171,7 +3064,6 @@ def test_get_labs_table_not_exists_for_get_all(client, monkeypatch):
     assert r.get_json()["success"] is True
     assert isinstance(r.get_json()["labs"], list)
 
-
 def test_equipment_empty_list_via_json_string(client):
     """Test equipment validation with empty list via JSON string (coverage for line 757)."""
     # Register admin
@@ -3205,7 +3097,6 @@ def test_equipment_empty_list_via_json_string(client):
     # The validation should catch the empty list after JSON parsing
     assert "equipment" in response_data["message"].lower() or "empty" in response_data["message"].lower()
 
-
 def test_require_auth_with_expired_token(client):
     """Test require_auth decorator with expired token (coverage for lines 244-247)."""
     import jwt
@@ -3232,12 +3123,12 @@ def test_require_auth_with_expired_token(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {expired_token}"},
     )
     assert r.status_code == 401
     assert "expired" in r.get_json()["message"].lower()
-
 
 def test_require_auth_with_invalid_token(client):
     """Test require_auth decorator with invalid token (coverage for lines 244-247)."""
@@ -3249,12 +3140,12 @@ def test_require_auth_with_invalid_token(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": "Bearer invalid_token_12345"},
     )
     assert r.status_code == 401
     assert "invalid" in r.get_json()["message"].lower()
-
 
 def test_approve_booking_table_not_exists(client, monkeypatch):
     """Test approve booking when table doesn't exist (coverage for line 616)."""
@@ -3296,7 +3187,6 @@ def test_approve_booking_table_not_exists(client, monkeypatch):
     assert r.status_code == 404
     assert "table does not exist" in r.get_json()["message"].lower()
 
-
 def test_reject_booking_table_not_exists(client, monkeypatch):
     """Test reject booking when table doesn't exist (coverage for line 673)."""
     # Register admin
@@ -3337,7 +3227,6 @@ def test_reject_booking_table_not_exists(client, monkeypatch):
     assert r.status_code == 404
     assert "table does not exist" in r.get_json()["message"].lower()
 
-
 def test_get_lab_table_not_exists_for_get(client, monkeypatch):
     """Test get lab when table doesn't exist (coverage for line 907)."""
     # Register and login
@@ -3377,7 +3266,6 @@ def test_get_lab_table_not_exists_for_get(client, monkeypatch):
     r = client.get("/api/labs/1", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 404
     assert "table does not exist" in r.get_json()["message"].lower()
-
 
 def test_update_lab_table_not_exists_for_update(client, monkeypatch):
     """Test update lab when table doesn't exist (coverage for line 958)."""
@@ -3427,7 +3315,6 @@ def test_update_lab_table_not_exists_for_update(client, monkeypatch):
     assert r.status_code == 404
     assert "table does not exist" in r.get_json()["message"].lower()
 
-
 def test_delete_lab_table_not_exists_for_delete(client, monkeypatch):
     """Test delete lab when table doesn't exist (coverage for line 1030)."""
     # Register admin
@@ -3468,7 +3355,6 @@ def test_delete_lab_table_not_exists_for_delete(client, monkeypatch):
     assert r.status_code == 404
     assert "table does not exist" in r.get_json()["message"].lower()
 
-
 def test_approve_booking_fetch_user(client):
     """Test approve booking fetches user (coverage for lines 637-640)."""
     # Register admin
@@ -3506,6 +3392,7 @@ def test_approve_booking_fetch_user(client):
             "booking_date": "2024-12-25",
             "start_time": "10:00",
             "end_time": "12:00",
+                "seats_required": 1,
         },
         headers={"Authorization": f"Bearer {stu_token}"},
     )
@@ -3518,7 +3405,6 @@ def test_approve_booking_fetch_user(client):
     )
     assert r.status_code == 200
     assert r.get_json()["success"] is True
-
 
 def test_get_bookings_table_check(client, monkeypatch):
     """Test get bookings when table doesn't exist (coverage for line 492)."""
@@ -3561,7 +3447,6 @@ def test_get_bookings_table_check(client, monkeypatch):
     assert r.get_json()["success"] is True
     assert isinstance(r.get_json()["bookings"], list)
 
-
 def test_get_pending_bookings_table_check(client, monkeypatch):
     """Test get pending bookings when table doesn't exist (coverage for line 562)."""
     # Register admin
@@ -3602,7 +3487,6 @@ def test_get_pending_bookings_table_check(client, monkeypatch):
     assert r.status_code == 200
     assert r.get_json()["success"] is True
     assert isinstance(r.get_json()["bookings"], list)
-
 
 def test_get_labs_includes_equipment_availability(client):
     """Test that GET /api/labs includes equipment_availability field."""
@@ -3650,7 +3534,6 @@ def test_get_labs_includes_equipment_availability(client):
     # Check all are available by default
     for eq in lab["equipment_availability"]:
         assert eq["is_available"] == "yes"
-
 
 def test_update_equipment_availability_admin_success(client):
     """Test that admin can update equipment availability."""
@@ -3714,7 +3597,6 @@ def test_update_equipment_availability_admin_success(client):
     printer_eq = next(eq for eq in lab["equipment_availability"] if eq["equipment_name"] == "Printer")
     assert printer_eq["is_available"] == "yes"
 
-
 def test_update_equipment_availability_invalid_status(client):
     """Test that invalid is_available value is rejected."""
     # Create admin and lab, then perform update as faculty
@@ -3763,7 +3645,6 @@ def test_update_equipment_availability_invalid_status(client):
     assert update_resp.status_code == 400
     assert "must be 'yes' or 'no'" in update_resp.get_json()["message"]
 
-
 def test_update_equipment_availability_requires_admin(client):
     """Test that only admin can update equipment availability."""
     # Register and login as student
@@ -3787,7 +3668,6 @@ def test_update_equipment_availability_requires_admin(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert update_resp.status_code == 403
-
 
 def test_update_lab_syncs_equipment_availability(client):
     """Test that updating lab equipment syncs equipment availability."""
@@ -3838,7 +3718,6 @@ def test_update_lab_syncs_equipment_availability(client):
     assert "Printer" in eq_names
     assert "Scanner" in eq_names
     assert "Projector" not in eq_names
-
 
 def test_update_equipment_availability_equipment_not_found(client):
     """Test that updating non-existent equipment returns 404."""
@@ -3891,7 +3770,6 @@ def test_update_equipment_availability_equipment_not_found(client):
     assert update_resp.status_code == 404
     assert "not found" in update_resp.get_json()["message"].lower()
 
-
 def test_update_equipment_availability_lab_not_found(client):
     """Test that updating equipment for non-existent lab returns 404."""
     # Register and login as faculty
@@ -3916,7 +3794,6 @@ def test_update_equipment_availability_lab_not_found(client):
     )
     assert update_resp.status_code == 404
     assert "lab not found" in update_resp.get_json()["message"].lower()
-
 
 def test_update_equipment_availability_missing_field(client):
     """Test that missing is_available field returns 400."""
@@ -3969,7 +3846,6 @@ def test_update_equipment_availability_missing_field(client):
     assert update_resp.status_code == 400
     assert "is_available" in update_resp.get_json()["message"].lower()
 
-
 def test_create_lab_equipment_string_comma_separated_coverage(client):
     """Test create lab with equipment as comma-separated string (coverage for line 900)."""
     # Create admin user and login
@@ -4000,7 +3876,6 @@ def test_create_lab_equipment_string_comma_separated_coverage(client):
     assert data["success"] is True
     assert "lab" in data
 
-
 def test_create_lab_equipment_json_string_value_coverage(client):
     """Test create lab with equipment as JSON string value to hit line 900."""
     # Create admin user and login
@@ -4030,7 +3905,6 @@ def test_create_lab_equipment_json_string_value_coverage(client):
     )
     # This might fail validation, but we're testing the code path
     assert response.status_code in [201, 400]
-
 
 def test_get_labs_auto_initialize_equipment_availability_comma_separated(client):
     """Test auto-initialization of equipment availability with comma-separated string."""
@@ -4076,7 +3950,6 @@ def test_get_labs_auto_initialize_equipment_availability_comma_separated(client)
     assert "Monitor" in eq_names
     assert "Keyboard" in eq_names
 
-
 def test_get_labs_auto_initialize_equipment_availability_single_string(client):
     """Test auto-initialization with single equipment string (coverage for line 995)."""
     from app import get_db_connection
@@ -4116,7 +3989,6 @@ def test_get_labs_auto_initialize_equipment_availability_single_string(client):
     lab = labs[0]
     assert len(lab["equipment_availability"]) == 1
     assert lab["equipment_availability"][0]["equipment_name"] == "Computer"
-
 
 def test_get_labs_auto_initialize_equipment_availability_json_not_list(client):
     """Test auto-initialization when JSON equipment is not a list."""

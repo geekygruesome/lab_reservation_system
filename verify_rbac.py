@@ -62,44 +62,44 @@ def main():
     print("RBAC VERIFICATION SCRIPT")
     print("=" * 60)
     print()
-    
+
     # Test 1: Register users
     print("Test 1: Registering users...")
     student_reg = register_user("RBAC_STU", "RBAC Student", "rbac_stu@test.com", "Test123!@#", "student")
     admin_reg = register_user("RBAC_ADM", "RBAC Admin", "rbac_adm@test.com", "Admin123!@#", "admin")
     lab_reg = register_user("RBAC_LAB", "RBAC Lab Asst", "rbac_lab@test.com", "Lab123!@#", "lab_assistant")
-    
+
     print_test("Student Registration", student_reg)
     print_test("Admin Registration", admin_reg)
     print_test("Lab Assistant Registration", lab_reg)
-    
+
     if not (student_reg and admin_reg and lab_reg):
         print("❌ Registration failed. Cannot continue.")
         return
-    
+
     # Test 2: Login and get tokens
     print("Test 2: Logging in...")
     student_token = login_user("RBAC_STU", "Test123!@#")
     admin_token = login_user("RBAC_ADM", "Admin123!@#")
     lab_token = login_user("RBAC_LAB", "Lab123!@#")
-    
+
     print_test("Student Login", student_token is not None)
     print_test("Admin Login", admin_token is not None)
     print_test("Lab Assistant Login", lab_token is not None)
-    
+
     if not (student_token and admin_token and lab_token):
         print("❌ Login failed. Cannot continue.")
         return
-    
+
     # Test 3: Create booking as student
     print("Test 3: Creating booking as student...")
     booking_id = create_booking(student_token)
     print_test("Student Creates Booking", booking_id is not None, f"Booking ID: {booking_id}")
-    
+
     if not booking_id:
         print("❌ Booking creation failed. Cannot continue.")
         return
-    
+
     # Test 4: Student tries to access admin endpoint (should fail)
     print("Test 4: Testing role-based access restrictions...")
     response = requests.get(
@@ -112,7 +112,7 @@ def main():
         student_blocked,
         f"Status: {response.status_code} (Expected: 403)"
     )
-    
+
     # Test 5: Student tries to approve booking (should fail)
     response = requests.post(
         f"{BASE_URL}/api/bookings/{booking_id}/approve",
@@ -124,7 +124,7 @@ def main():
         student_cannot_approve,
         f"Status: {response.status_code} (Expected: 403)"
     )
-    
+
     # Test 6: Lab Assistant tries to access admin endpoint (should fail)
     response = requests.get(
         f"{BASE_URL}/api/bookings/pending",
@@ -136,7 +136,7 @@ def main():
         lab_blocked,
         f"Status: {response.status_code} (Expected: 403)"
     )
-    
+
     # Test 7: Admin can access admin endpoint (should succeed)
     response = requests.get(
         f"{BASE_URL}/api/bookings/pending",
@@ -149,7 +149,7 @@ def main():
         admin_access,
         f"Status: {response.status_code} (Expected: 200), Pending bookings: {pending_count}"
     )
-    
+
     # Test 8: Admin can approve booking (should succeed)
     response = requests.post(
         f"{BASE_URL}/api/bookings/{booking_id}/approve",
@@ -161,7 +161,7 @@ def main():
         admin_can_approve,
         f"Status: {response.status_code} (Expected: 200)"
     )
-    
+
     # Test 9: Unauthenticated access (should fail)
     response = requests.get(f"{BASE_URL}/api/bookings")
     unauth_blocked = response.status_code == 401
@@ -170,7 +170,7 @@ def main():
         unauth_blocked,
         f"Status: {response.status_code} (Expected: 401)"
     )
-    
+
     # Test 10: Student can view own bookings
     response = requests.get(
         f"{BASE_URL}/api/bookings",
@@ -187,7 +187,7 @@ def main():
         student_sees_own,
         f"Status: {response.status_code} (Expected: 200), Bookings: {student_booking_count}"
     )
-    
+
     # Test 11: Admin can view all bookings
     response = requests.get(
         f"{BASE_URL}/api/bookings",
@@ -204,12 +204,12 @@ def main():
         admin_sees_all,
         f"Status: {response.status_code} (Expected: 200), Bookings: {admin_booking_count}"
     )
-    
+
     # Summary
     print("=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    
+
     all_tests = [
         ("Student Registration", student_reg),
         ("Admin Registration", admin_reg),
@@ -227,14 +227,14 @@ def main():
         ("Student Views Own Bookings", student_sees_own),
         ("Admin Views All Bookings", admin_sees_all),
     ]
-    
+
     passed = sum(1 for _, result in all_tests if result)
     total = len(all_tests)
-    
+
     print(f"\nTests Passed: {passed}/{total}")
     print(f"Tests Failed: {total - passed}/{total}")
     print()
-    
+
     if passed == total:
         print("✅ ALL TESTS PASSED - RBAC IS WORKING CORRECTLY!")
     else:
@@ -243,7 +243,7 @@ def main():
         for name, result in all_tests:
             if not result:
                 print(f"  - {name}")
-    
+
     print()
     print("=" * 60)
 
@@ -255,4 +255,3 @@ if __name__ == "__main__":
         print("   Make sure Flask server is running: python app.py")
     except Exception as e:
         print(f"❌ ERROR: {e}")
-

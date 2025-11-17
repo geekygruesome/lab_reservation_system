@@ -40,7 +40,7 @@ test_users = [
 def create_test_users():
     conn = sqlite3.connect("lab_reservations.db")
     cursor = conn.cursor()
-    
+
     # Ensure users table exists
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -51,10 +51,10 @@ def create_test_users():
             role TEXT NOT NULL
         );
     """)
-    
+
     created = 0
     skipped = 0
-    
+
     for user in test_users:
         try:
             password_hash = generate_password_hash(user["password"])
@@ -73,10 +73,10 @@ def create_test_users():
         except sqlite3.IntegrityError:
             skipped += 1
             print(f"[SKIP] User {user['college_id']} already exists, skipping...")
-    
+
     conn.commit()
     conn.close()
-    
+
     print(f"\n[SUMMARY] {created} users created, {skipped} skipped")
     print("\n[TEST CREDENTIALS]")
     print("=" * 50)
@@ -91,4 +91,3 @@ if __name__ == "__main__":
     print("=" * 50)
     create_test_users()
     print("\n[DONE] You can now login with any of these credentials.")
-

@@ -6,7 +6,6 @@ from werkzeug.security import generate_password_hash
 
 import app as app_module
 
-
 @pytest.fixture
 def client(monkeypatch):
     app_module.app.config["TESTING"] = True
@@ -95,7 +94,6 @@ def client(monkeypatch):
         yield client_obj
     conn.close()
 
-
 def _create_user(conn, college_id, name, email, role, password='Pass1!234'):
     cur = conn.cursor()
     password_hash = generate_password_hash(password)
@@ -105,7 +103,6 @@ def _create_user(conn, college_id, name, email, role, password='Pass1!234'):
         (college_id, name, email, password_hash, role),
     )
     conn.commit()
-
 
 def _create_lab(conn, name, capacity=10, equipment='[]'):
     cur = conn.cursor()
@@ -118,7 +115,6 @@ def _create_lab(conn, name, capacity=10, equipment='[]'):
     conn.commit()
     return cur.lastrowid
 
-
 def _create_availability(conn, lab_id, day_of_week, start_time, end_time):
     cur = conn.cursor()
     cur.execute(
@@ -127,7 +123,6 @@ def _create_availability(conn, lab_id, day_of_week, start_time, end_time):
         (lab_id, day_of_week, start_time, end_time),
     )
     conn.commit()
-
 
 def _create_booking(conn, college_id, lab_name, booking_date, start_time, end_time, status='approved'):
     cur = conn.cursor()
@@ -139,7 +134,6 @@ def _create_booking(conn, college_id, lab_name, booking_date, start_time, end_ti
     )
     conn.commit()
     return cur.lastrowid
-
 
 def test_student_view_valid_date(client):
     conn = app_module.get_db_connection()
@@ -181,7 +175,6 @@ def test_student_view_valid_date(client):
     assert 'labs' in data
     assert any(lab['lab_name'] == 'Physics' for lab in data['labs'])
 
-
 def test_reject_past_date(client):
     client.post(
         '/api/register',
@@ -207,7 +200,6 @@ def test_reject_past_date(client):
         headers={'Authorization': f'Bearer {token}'},
     )
     assert r.status_code == 400
-
 
 def test_lab_with_full_bookings(client):
     conn = app_module.get_db_connection()
@@ -254,7 +246,6 @@ def test_lab_with_full_bookings(client):
     assert chemistry_lab is not None, "Lab with configured slots should be visible to students even if fully booked"
     # But the slot should show as fully booked
     assert chemistry_lab.get('occupancy', {}).get('free', 1) == 0, "Lab should show 0 free slots"
-
 
 def test_admin_view_and_override_and_disable(client):
     conn = app_module.get_db_connection()
@@ -345,7 +336,6 @@ def test_admin_view_and_override_and_disable(client):
     assert rs.status_code == 200
     assert not any(lab['lab_name'] == 'Biology' for lab in rs.get_json()['labs'])
 
-
 def test_admin_endpoint_requires_admin_role(client):
     # register as student and try to access admin endpoint
     client.post(
@@ -369,7 +359,6 @@ def test_admin_endpoint_requires_admin_role(client):
         headers={'Authorization': f'Bearer {token}'},
     )
     assert r.status_code == 403
-
 
 def test_lab_assistant_view_assigned_labs(client):
     """Lab assistant should only see labs assigned to them."""
@@ -423,7 +412,6 @@ def test_lab_assistant_view_assigned_labs(client):
     assert 'assigned_labs' in data
     assert len(data['assigned_labs']) == 1
     assert data['assigned_labs'][0]['lab_name'] == 'Physics'
-
 
 def test_lab_assistant_sees_all_slots(client):
     """Lab assistant should see both free and booked slots for their labs."""
@@ -484,7 +472,6 @@ def test_lab_assistant_sees_all_slots(client):
     assert len(lab['bookings']) == 1
     assert lab['bookings'][0]['college_id'] == 'S2'
 
-
 def test_lab_assistant_default_to_today(client):
     """If no date provided, lab assistant should get today's assigned labs."""
     conn = app_module.get_db_connection()
@@ -533,7 +520,6 @@ def test_lab_assistant_default_to_today(client):
     assert data['date'] == date_str
     assert len(data['assigned_labs']) == 1
 
-
 def test_lab_assistant_endpoint_requires_role(client):
     """Only lab assistants should access the lab assistant endpoint."""
     # Register and login as student
@@ -560,7 +546,6 @@ def test_lab_assistant_endpoint_requires_role(client):
         headers={'Authorization': f'Bearer {token}'},
     )
     assert r.status_code == 403
-
 
 def test_student_cannot_see_booked_slots(client):
     """Students should not see booked slots (privacy)."""
@@ -608,7 +593,6 @@ def test_student_cannot_see_booked_slots(client):
         lab = data['labs'][0]
         # Students should not have 'bookings' key in their response
         assert 'bookings' not in lab or not lab.get('bookings')
-
 
 def test_admin_sees_all_labs_including_disabled(client):
     """Admins should see all labs, even disabled ones."""

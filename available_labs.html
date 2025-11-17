@@ -37,6 +37,12 @@
     <button id="loadBtn">Check Availability</button>
     <div id="dateError"></div>
   </div>
+  <div class="controls">
+    <label for="equipmentSearch">Search Labs by Equipment:</label>
+    <input id="equipmentSearch" type="text" placeholder="e.g., Arduino, Microscope, Burner" />
+    <button id="searchBtn">Search</button>
+    <div id="searchError"></div>
+  </div>
   <div id="meta" class="info" style="display:none"></div>
   <div id="labsContainer"></div>
 
@@ -231,6 +237,64 @@
       document.getElementById('labsContainer').innerHTML = '<div class="empty-state">Network error. Please try again.</div>';
     }
   }
+
+  // Equipment search function
+  async function searchEquipment() {
+    const searchError = document.getElementById('searchError');
+    const equipmentKeyword = document.getElementById('equipmentSearch').value.trim();
+    
+    searchError.style.display = 'none';
+    searchError.textContent = '';
+    
+    if (!equipmentKeyword) {
+      searchError.textContent = 'Please enter an equipment keyword.';
+      searchError.style.display = 'block';
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        searchError.textContent = 'Authentication required. Please log in.';
+        searchError.style.display = 'block';
+        return;
+      }
+      
+      const response = await fetch(`/api/labs/search/equipment?equipment=${encodeURIComponent(equipmentKeyword)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!response.ok) {
+        searchError.textContent = 'Search failed. Please try again.';
+        searchError.style.display = 'block';
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success || data.labs.length === 0) {
+        document.getElementById('labsContainer').innerHTML = '<div class="empty-state">No matching labs found</div>';
+        return;
+      }
+      
+      // Build results table
+      let html = '<table><thead><tr><th>Lab Name</th><th>Capacity</th><th>Equipment</th></tr></thead><tbody>';
+      
+      for (const lab of data.labs) {
+        html += `<tr><td>${lab.name}</td><td>${lab.capacity}</td><td>${lab.equipment}</td></tr>`;
+      }
+      
+      html += '</tbody></table>';
+      document.getElementById('labsContainer').innerHTML = html;
+      
+    } catch(e) {
+      console.error(e);
+      searchError.textContent = 'Network error. Please try again.';
+      searchError.style.display = 'block';
+    }
+  }
+
+  document.getElementById('searchBtn').addEventListener('click', searchEquipment);
 
   // initial load
   load();

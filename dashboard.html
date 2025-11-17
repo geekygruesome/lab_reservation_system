@@ -409,12 +409,6 @@
                 <p>Check equipment availability across all labs</p>
             </div>
 
-            <div class="card admin-only">
-                <div class="card-icon">👥</div>
-                <h3>Manage Users</h3>
-                <p>View and manage user accounts</p>
-            </div>
-
             <div class="card admin-only" onclick="showLabManagement()">
                 <div class="card-icon">🏪</div>
                 <h3>Manage Labs</h3>
@@ -692,7 +686,29 @@
         async function checkAvailability() {
             const token = localStorage.getItem('token');
             const labName = document.getElementById('bookingLabName').value.trim();
-            const bookingDate = document.getElementById('bookingDate').value;
+            const bookingDateRaw = document.getElementById('bookingDate').value;
+            // Normalize booking date to YYYY-MM-DD for backend validation
+            let bookingDate = bookingDateRaw;
+            // If format is DD-MM-YYYY (common display), convert to YYYY-MM-DD
+            if (/^\d{2}-\d{2}-\d{4}$/.test(bookingDateRaw)) {
+                const parts = bookingDateRaw.split('-');
+                bookingDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(bookingDateRaw)) {
+                // MM/DD/YYYY -> YYYY-MM-DD
+                const parts = bookingDateRaw.split('/');
+                const mm = parts[0].padStart(2, '0');
+                const dd = parts[1].padStart(2, '0');
+                bookingDate = `${parts[2]}-${mm}-${dd}`;
+            } else if (/^\d{4}-\d{2}-\d{2}$/.test(bookingDateRaw)) {
+                // already YYYY-MM-DD
+                bookingDate = bookingDateRaw;
+            } else {
+                // Fallback: try to parse via Date and convert
+                const dt = new Date(bookingDateRaw);
+                if (!isNaN(dt.getTime())) {
+                    bookingDate = dt.toISOString().slice(0, 10);
+                }
+            }
             const startTime = document.getElementById('bookingStartTime').value;
             const endTime = document.getElementById('bookingEndTime').value;
             const resDiv = document.getElementById('availabilityResult');
@@ -1307,8 +1323,12 @@
                 lab_name: labName,
                 booking_date: bookingDate,
                 start_time: startTime,
-                end_time: endTime
+                end_time: endTime,
+                // Ensure seats_required is sent as a number
+                seats_required: 1  // Default to 1 seat
             };
+            
+            console.log('Sending booking request:', JSON.stringify(payload, null, 2));
 
             try {
                 const response = await fetch('http://localhost:5000/api/bookings', {
@@ -1320,10 +1340,14 @@
                     body: JSON.stringify(payload),
                 });
 
-                const data = await response.json();
-                console.log('Create booking response:', response.status, data);
+                const data = await response.json().catch(e => ({}));
+                console.log('Create booking response:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    data: data
+                });
 
-                if (response.ok && data.success) {
+                if (response.ok && data && data.success) {
                     // Show styled confirmation with booking details
                     showBookingConfirmation({
                         lab_name: labName,
@@ -1335,11 +1359,20 @@
                     });
                     closeBookingModal();
                 } else {
-                    showToast(data.message || 'Failed to create booking', 'error');
+                    const errorMessage = data.message || 
+                                     data.error || 
+                                     `Failed to create booking (Status: ${response.status})`;
+                    showToast(errorMessage, 'error');
                 }
             } catch (error) {
                 console.error('Error creating booking:', error);
-                showToast('Error creating booking: ' + error.message, 'error');
+                let errorMessage = 'Error creating booking';
+                if (error instanceof Error) {
+                    errorMessage += ': ' + error.message;
+                } else if (typeof error === 'string') {
+                    errorMessage += ': ' + error;
+                }
+                showToast(errorMessage, 'error');
             }
         }
 

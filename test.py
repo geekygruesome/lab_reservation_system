@@ -6,11 +6,9 @@ from app import app, validate_registration_data
 # Global test database
 test_db_global = None
 
-
 def mock_get_db_connection():
     test_db_global.row_factory = sqlite3.Row
     return test_db_global
-
 
 @pytest.fixture
 def client():
@@ -42,9 +40,7 @@ def client():
     test_db_global.close()
     test_db_global = None
 
-
 # ===== REGISTRATION TESTS =====
-
 
 def test_registration_success(client):
     """Test successful user registration."""
@@ -61,7 +57,6 @@ def test_registration_success(client):
     assert response.status_code == 201
     assert response.get_json()["success"] is True
     assert "User registration complete" in response.get_json()["message"]
-
 
 def test_registration_duplicate_email(client):
     """Test duplicate email rejection."""
@@ -90,7 +85,6 @@ def test_registration_duplicate_email(client):
     assert resp.get_json()["success"] is False
     assert "Duplicate email" in resp.get_json()["message"]
 
-
 def test_registration_duplicate_college_id(client):
     """Test duplicate college ID rejection."""
     client.post(
@@ -118,7 +112,6 @@ def test_registration_duplicate_college_id(client):
     assert resp.get_json()["success"] is False
     assert "Duplicate college ID" in resp.get_json()["message"]
 
-
 def test_registration_missing_fields(client):
     """Test registration with missing required fields."""
     response = client.post(
@@ -129,7 +122,6 @@ def test_registration_missing_fields(client):
     assert response.get_json()["success"] is False
     assert "All fields" in response.get_json()["message"]
 
-
 def test_registration_invalid_json(client):
     """Test registration with invalid JSON."""
     response = client.post(
@@ -138,9 +130,7 @@ def test_registration_invalid_json(client):
     assert response.status_code == 400
     # Flask returns 400 for malformed JSON
 
-
 # ===== VALIDATION TESTS =====
-
 
 @pytest.mark.parametrize(
     "password,expected_errors",
@@ -171,7 +161,6 @@ def test_password_validation(password, expected_errors):
     else:
         assert valid
 
-
 def test_email_format_validation():
     """Test email format validation."""
     invalid_emails = [
@@ -195,7 +184,6 @@ def test_email_format_validation():
             "Invalid email" in error for error in errors
         ), f"Expected email validation error for {email}"
 
-
 def test_missing_fields_validation():
     """Test missing required fields validation."""
     incomplete_data = [
@@ -212,7 +200,6 @@ def test_missing_fields_validation():
         assert any(
             "All fields" in error for error in errors
         ), f"Expected 'All fields' error for {data}"
-
 
 def test_email_edge_cases():
     """Test edge cases for email validation."""
@@ -232,7 +219,6 @@ def test_email_edge_cases():
         }
         valid, errors = validate_registration_data(data)
         assert valid, f"Email {email} should be valid, got errors: {errors}"
-
 
 def test_password_edge_cases():
     """Test edge cases for password validation."""
@@ -256,7 +242,6 @@ def test_password_edge_cases():
     data["password"] = "P@ssw0rd"  # 8 chars
     valid, errors = validate_registration_data(data)
     assert valid, f"Should be valid, got errors: {errors}"
-
 
 def test_registration_all_roles(client):
     """Test registration with different user roles."""

@@ -1,0 +1,44 @@
+[MASTER]
+ignore=venv,env,.venv,build,dist
+jobs=1
+
+[MESSAGES CONTROL]
+# Disable noisy rules that would require large refactors to resolve.
+disable=
+    C0103,  # invalid-name
+    C0114,  # missing-module-docstring
+    C0115,  # missing-class-docstring
+    C0116,  # missing-function-docstring
+    C0301,  # line-too-long
+    C0415,  # import-outside-toplevel
+    R0201,  # no-self-use
+    R0902,  # too-many-instance-attributes
+    R0903,  # too-few-public-methods
+    R0912,  # too-many-branches
+    R0913,  # too-many-arguments
+    R0914,  # too-many-locals
+    R0915,  # too-many-statements
+    W0511,  # fixme
+    W0703,  # broad-except
+    W0613,  # unused-argument
+    W0621,  # redefined-outer-name
+
+[FORMAT]
+max-line-length=120
+
+[REPORTS]
+# Only show the score and brief summary
+reports=no
+
+[DESIGN]
+max-args=10
+max-locals=50
+max-returns=30
+max-branches=50
+max-statements=200
+max-parents=10
+max-attributes=20
+
+[LOGGING]
+# Allow basic logging format usage
+logging-format-style=old
