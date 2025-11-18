@@ -105,9 +105,9 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          echo "Checking coverage threshold (≥70%)..."
-          pytest tests/ --cov=app --cov-fail-under=70 --cov-report=term-missing
-          echo "✅ Coverage threshold met (≥70%)"
+          echo "Checking coverage threshold (≥74%)..."
+          pytest tests/ --cov=app --cov-fail-under=74 --cov-report=term-missing
+          echo "✅ Coverage threshold met (≥74%)"
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
       - name: Test results
         run: |
           echo "✅ Stage 2 - Test and Coverage: PASSED"
-          echo "All tests passed with coverage ≥70%"
+          echo "All tests passed with coverage ≥74%"
 
   # Stage 3: Build
   build:
