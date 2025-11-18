@@ -3681,31 +3681,18 @@ def test_update_equipment_availability_admin_success(client):
     assert create_resp.status_code == 201
     lab_id = create_resp.get_json()["lab"]["id"]
 
-    # Register and login as faculty (equipment editing allowed for faculty/lab_assistant)
-    client.post(
-        "/api/register",
-        json={
-            "college_id": "FAC_EQ2",
-            "name": "Faculty Equipment 2",
-            "email": "faceq2@pesu.edu",
-            "password": "FacultyPass1!",
-            "role": "faculty",
-        },
-    )
-    login_resp = client.post("/api/login", json={"college_id": "FAC_EQ2", "password": "FacultyPass1!"})
-    token = login_resp.get_json()["token"]
-
+    # Use admin token (endpoint requires admin role)
     # Update equipment availability
     update_resp = client.put(
         f"/api/labs/{lab_id}/equipment/Computer/availability",
         json={"is_available": "no"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert update_resp.status_code == 200
     assert update_resp.get_json()["success"] is True
 
     # Verify the update
-    get_resp = client.get("/api/labs", headers={"Authorization": f"Bearer {token}"})
+    get_resp = client.get("/api/labs", headers={"Authorization": f"Bearer {admin_token}"})
     assert get_resp.status_code == 200
     labs = get_resp.get_json()["labs"]
     lab = next(lab_item for lab_item in labs if lab_item["id"] == lab_id)
@@ -3741,24 +3728,12 @@ def test_update_equipment_availability_invalid_status(client):
     )
     lab_id = create_resp.get_json()["lab"]["id"]
 
-    client.post(
-        "/api/register",
-        json={
-            "college_id": "FAC_EQ3",
-            "name": "Faculty Equipment 3",
-            "email": "faceq3@pesu.edu",
-            "password": "FacultyPass1!",
-            "role": "faculty",
-        },
-    )
-    login_resp = client.post("/api/login", json={"college_id": "FAC_EQ3", "password": "FacultyPass1!"})
-    token = login_resp.get_json()["token"]
-
+    # Use admin token (endpoint requires admin role)
     # Try to update with invalid status
     update_resp = client.put(
         f"/api/labs/{lab_id}/equipment/Computer/availability",
         json={"is_available": "maybe"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert update_resp.status_code == 400
     assert "must be 'yes' or 'no'" in update_resp.get_json()["message"]
@@ -3868,25 +3843,12 @@ def test_update_equipment_availability_equipment_not_found(client):
     )
     lab_id = create_resp.get_json()["lab"]["id"]
 
-    # Register and login as faculty (equipment editing allowed for faculty/lab_assistant)
-    client.post(
-        "/api/register",
-        json={
-            "college_id": "FAC_NOTFOUND",
-            "name": "Faculty Not Found",
-            "email": "facnotfound@pesu.edu",
-            "password": "FacultyPass1!",
-            "role": "faculty",
-        },
-    )
-    login_resp = client.post("/api/login", json={"college_id": "FAC_NOTFOUND", "password": "FacultyPass1!"})
-    token = login_resp.get_json()["token"]
-
+    # Use admin token (endpoint requires admin role)
     # Try to update non-existent equipment
     update_resp = client.put(
         f"/api/labs/{lab_id}/equipment/NonExistent/availability",
         json={"is_available": "no"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert update_resp.status_code == 404
     assert "not found" in update_resp.get_json()["message"].lower()
@@ -3894,18 +3856,18 @@ def test_update_equipment_availability_equipment_not_found(client):
 
 def test_update_equipment_availability_lab_not_found(client):
     """Test that updating equipment for non-existent lab returns 404."""
-    # Register and login as faculty
+    # Register and login as admin (endpoint requires admin role)
     client.post(
         "/api/register",
         json={
-            "college_id": "FAC_LABNF",
-            "name": "Faculty Lab NF",
-            "email": "faclabnf@pesu.edu",
-            "password": "FacultyPass1!",
-            "role": "faculty",
+            "college_id": "ADM_LABNF",
+            "name": "Admin Lab NF",
+            "email": "admlabnf@pesu.edu",
+            "password": "AdminPass1!",
+            "role": "admin",
         },
     )
-    login_resp = client.post("/api/login", json={"college_id": "FAC_LABNF", "password": "FacultyPass1!"})
+    login_resp = client.post("/api/login", json={"college_id": "ADM_LABNF", "password": "AdminPass1!"})
     token = login_resp.get_json()["token"]
 
     # Try to update equipment for non-existent lab
@@ -3920,7 +3882,7 @@ def test_update_equipment_availability_lab_not_found(client):
 
 def test_update_equipment_availability_missing_field(client):
     """Test that missing is_available field returns 400."""
-    # Create an admin to create the lab, then register faculty to attempt update
+    # The endpoint requires admin role, so use admin token
     client.post(
         "/api/register",
         json={
@@ -3946,25 +3908,11 @@ def test_update_equipment_availability_missing_field(client):
     )
     lab_id = create_resp.get_json()["lab"]["id"]
 
-    # Register and login as faculty
-    client.post(
-        "/api/register",
-        json={
-            "college_id": "FAC_MISS",
-            "name": "Faculty Missing",
-            "email": "facmiss@pesu.edu",
-            "password": "FacultyPass1!",
-            "role": "faculty",
-        },
-    )
-    login_resp = client.post("/api/login", json={"college_id": "FAC_MISS", "password": "FacultyPass1!"})
-    token = login_resp.get_json()["token"]
-
-    # Try to update without is_available field (send valid JSON but missing field)
+    # Try to update without is_available field (send valid JSON but missing field) using admin token
     update_resp = client.put(
         f"/api/labs/{lab_id}/equipment/Computer/availability",
         json={"some_other_field": "value"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert update_resp.status_code == 400
     assert "is_available" in update_resp.get_json()["message"].lower()

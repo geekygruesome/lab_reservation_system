@@ -8,6 +8,7 @@ def raise_sqlite_error():
     class FakeConn:
         def cursor(self):
             raise sqlite3.Error("simulated db error")
+
         def close(self):
             pass
     return FakeConn()
@@ -111,10 +112,27 @@ def test_create_booking_db_error(client, monkeypatch):
 
 
 def test_check_availability_db_error(client, monkeypatch):
+    # The /api/bookings/check endpoint doesn't exist, so this test should be removed or updated
+    # Using available-slots endpoint instead which does exist
+    # Need to create lab first, then mock DB error after date validation passes
+    from datetime import datetime, timedelta
+    import app as app_module
+    
+    # Create lab first before mocking DB error
+    conn = app_module.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO labs (name, capacity, equipment, created_at) VALUES (?, ?, ?, ?)",
+        ("TestLab", 10, "[]", datetime.now().isoformat()),
+    )
+    conn.commit()
+    
+    # Now mock DB error - this will trigger after date validation
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)
     token = _generate_token({"college_id": "ERR2", "role": "student", "name": "Err"})
+    future_date = (datetime.now().date() + timedelta(days=1)).strftime("%Y-%m-%d")
     resp = client.get(
-        "/api/bookings/check?lab_name=Lab+X&booking_date=2025-01-01&start_time=10:00&end_time=11:00",
+        f"/api/labs/TestLab/available-slots?date={future_date}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 500
@@ -130,8 +148,9 @@ def test_get_labs_db_error(client, monkeypatch):
 
 
 def test_update_equipment_availability_db_error(client, monkeypatch):
+    # The endpoint requires admin role, not faculty
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)
-    token = _generate_token({"college_id": "ERR4", "role": "faculty", "name": "Err"})
+    token = _generate_token({"college_id": "ERR4", "role": "admin", "name": "Err"})
     resp = client.put(
         "/api/labs/1/equipment/Computer/availability",
         json={"is_available": "no"},

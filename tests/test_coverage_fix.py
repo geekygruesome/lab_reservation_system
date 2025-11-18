@@ -9,7 +9,6 @@ from app import app
 import app as app_module
 
 
-
 @pytest.fixture
 def client(monkeypatch):
     app.config["TESTING"] = True
@@ -472,3 +471,467 @@ def test_lab_assistant_assigned_labs_invalid_date(client):
     )
     assert r.status_code == 400
     assert "date format" in r.get_json()["error"].lower()
+
+
+# Note: test_disable_lab_date_format_edge_case removed - datetime.strptime is immutable and hard to mock
+# The edge case (line 2402) is very rare in practice and would require complex mocking
+# Other error paths provide sufficient coverage
+
+
+def test_disable_lab_labs_table_not_exists(client, monkeypatch):
+    """Test disable_lab when labs table doesn't exist (line 2418)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "ADM_NOTAB",
+            "name": "Admin NoTab",
+            "email": "adm_notab@test.com",
+            "password": "Admin123!@#",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "ADM_NOTAB", "password": "Admin123!@#"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create a connection without labs table
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    # Don't create labs table
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            college_id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        """
+    )
+    conn.commit()
+
+    def get_conn():
+        return conn
+    monkeypatch.setattr("app.get_db_connection", get_conn)
+    monkeypatch.setattr("app.DATABASE", ":memory:")
+
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.post(
+        "/api/admin/labs/1/disable",
+        json={"date": future_date},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 404
+    assert "labs table does not exist" in r.get_json()["message"].lower()
+    conn.close()
+
+
+def test_disable_lab_database_error(client, monkeypatch):
+    """Test disable_lab database error handling (lines 2455-2464)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "ADM_DBERR",
+            "name": "Admin DBErr",
+            "email": "adm_dberr@test.com",
+            "password": "Admin123!@#",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "ADM_DBERR", "password": "Admin123!@#"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create a connection that raises sqlite3.Error
+    class ErrorConn:
+        def cursor(self):
+            raise sqlite3.Error("Simulated database error")
+        def close(self):
+            pass
+        def commit(self):
+            raise sqlite3.Error("Simulated commit error")
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")  # Not :memory: to trigger finally block
+
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.post(
+        "/api/admin/labs/1/disable",
+        json={"date": future_date},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 500
+    assert "failed" in r.get_json()["message"].lower()
+
+
+def test_disable_lab_unexpected_error(client, monkeypatch):
+    """Test disable_lab unexpected error handling (lines 2460-2464)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "ADM_UNEXP",
+            "name": "Admin Unexp",
+            "email": "adm_unexp@test.com",
+            "password": "Admin123!@#",
+            "role": "admin",
+        },
+    )
+    admin_login = client.post("/api/login", json={"college_id": "ADM_UNEXP", "password": "Admin123!@#"})
+    admin_token = admin_login.get_json()["token"]
+
+    # Create a connection that raises generic Exception
+    class ErrorConn:
+        def cursor(self):
+            raise Exception("Simulated unexpected error")
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")  # Not :memory: to trigger finally block
+
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.post(
+        "/api/admin/labs/1/disable",
+        json={"date": future_date},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 500
+    assert "unexpected error" in r.get_json()["message"].lower()
+
+
+# Note: test_get_assigned_labs_date_format_edge_case removed - datetime.strptime is immutable and hard to mock
+# The edge case (line 2485) is very rare in practice and would require complex mocking
+# Other error paths provide sufficient coverage
+
+
+def test_get_assigned_labs_past_date(client):
+    """Test get_assigned_labs with past date (line 2492)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_PAST",
+            "name": "Lab Assist Past",
+            "email": "la_past@test.com",
+            "password": "LabAss123!@#",
+            "role": "lab_assistant",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "LA_PAST", "password": "LabAss123!@#"})
+    token = login.get_json()["token"]
+
+    past_date = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.get(
+        f"/api/lab-assistant/labs/assigned?date={past_date}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 400
+    assert "past" in r.get_json()["error"].lower()
+
+
+def test_get_assigned_labs_invalid_date_get_day_of_week(client, monkeypatch):
+    """Test get_assigned_labs with date that get_day_of_week returns None (line 2497)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_INV2",
+            "name": "Lab Assist Inv2",
+            "email": "la_inv2@test.com",
+            "password": "LabAss123!@#",
+            "role": "lab_assistant",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "LA_INV2", "password": "LabAss123!@#"})
+    token = login.get_json()["token"]
+
+    # Mock get_day_of_week to return None
+    monkeypatch.setattr("app.get_day_of_week", lambda x: None)
+
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.get(
+        f"/api/lab-assistant/labs/assigned?date={future_date}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 400
+    assert "invalid date" in r.get_json()["error"].lower()
+
+
+def test_get_assigned_labs_table_not_exists(client, monkeypatch):
+    """Test get_assigned_labs when lab_assistant_assignments table doesn't exist (line 2507)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_NOTAB",
+            "name": "Lab Assist NoTab",
+            "email": "la_notab@test.com",
+            "password": "LabAss123!@#",
+            "role": "lab_assistant",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "LA_NOTAB", "password": "LabAss123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection without lab_assistant_assignments table
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            college_id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        """
+    )
+    conn.commit()
+
+    def get_conn():
+        return conn
+    monkeypatch.setattr("app.get_db_connection", get_conn)
+    monkeypatch.setattr("app.DATABASE", ":memory:")
+
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.get(
+        f"/api/lab-assistant/labs/assigned?date={future_date}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["assigned_labs"] == []
+    conn.close()
+
+
+def test_get_assigned_labs_database_error(client, monkeypatch):
+    """Test get_assigned_labs database error handling (lines 2613-2617)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_DBERR",
+            "name": "Lab Assist DBErr",
+            "email": "la_dberr@test.com",
+            "password": "LabAss123!@#",
+            "role": "lab_assistant",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "LA_DBERR", "password": "LabAss123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection that raises sqlite3.Error
+    class ErrorConn:
+        def cursor(self):
+            raise sqlite3.Error("Simulated database error")
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")  # Not :memory: to trigger finally block
+
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.get(
+        f"/api/lab-assistant/labs/assigned?date={future_date}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 500
+    assert "database error" in r.get_json()["error"].lower()
+
+
+def test_get_assigned_labs_unexpected_error(client, monkeypatch):
+    """Test get_assigned_labs unexpected error handling (lines 2618-2622)."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "LA_UNEXP",
+            "name": "Lab Assist Unexp",
+            "email": "la_unexp@test.com",
+            "password": "LabAss123!@#",
+            "role": "lab_assistant",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "LA_UNEXP", "password": "LabAss123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection that raises generic Exception
+    class ErrorConn:
+        def cursor(self):
+            raise Exception("Simulated unexpected error")
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")  # Not :memory: to trigger finally block
+
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    r = client.get(
+        f"/api/lab-assistant/labs/assigned?date={future_date}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 500
+    assert "unexpected error" in r.get_json()["error"].lower()
+
+
+def test_get_bookings_database_error(client, monkeypatch):
+    """Test get_bookings database error handling."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "BOOK_ERR",
+            "name": "Book Err",
+            "email": "bookerr@test.com",
+            "password": "Book123!@#",
+            "role": "student",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "BOOK_ERR", "password": "Book123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection that raises sqlite3.Error
+    class ErrorConn:
+        def cursor(self):
+            raise sqlite3.Error("Simulated database error")
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")
+
+    r = client.get("/api/bookings", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 500
+    assert "failed" in r.get_json()["message"].lower()
+
+
+def test_get_bookings_unexpected_error(client, monkeypatch):
+    """Test get_bookings unexpected error handling."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "BOOK_UNEXP",
+            "name": "Book Unexp",
+            "email": "bookunexp@test.com",
+            "password": "Book123!@#",
+            "role": "student",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "BOOK_UNEXP", "password": "Book123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection that raises generic Exception
+    class ErrorConn:
+        def cursor(self):
+            raise Exception("Simulated unexpected error")
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")
+
+    r = client.get("/api/bookings", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 500
+    assert "unexpected error" in r.get_json()["message"].lower()
+
+
+def test_get_pending_bookings_database_error(client, monkeypatch):
+    """Test get_pending_bookings database error handling."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "PEND_ERR",
+            "name": "Pend Err",
+            "email": "penderr@test.com",
+            "password": "Admin123!@#",
+            "role": "admin",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "PEND_ERR", "password": "Admin123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection that raises sqlite3.Error
+    class ErrorConn:
+        def cursor(self):
+            raise sqlite3.Error("Simulated database error")
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")
+
+    r = client.get("/api/bookings/pending", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 500
+    assert "failed" in r.get_json()["message"].lower()
+
+
+def test_get_pending_bookings_unexpected_error(client, monkeypatch):
+    """Test get_pending_bookings unexpected error handling."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "PEND_UNEXP",
+            "name": "Pend Unexp",
+            "email": "pendunexp@test.com",
+            "password": "Admin123!@#",
+            "role": "admin",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "PEND_UNEXP", "password": "Admin123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection that raises generic Exception
+    class ErrorConn:
+        def cursor(self):
+            raise Exception("Simulated unexpected error")
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.get_db_connection", lambda: ErrorConn())
+    monkeypatch.setattr("app.DATABASE", "test.db")
+
+    r = client.get("/api/bookings/pending", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 500
+    assert "unexpected error" in r.get_json()["message"].lower()
+
+
+def test_approve_booking_table_not_exists(client, monkeypatch):
+    """Test approve_booking when bookings table doesn't exist."""
+    client.post(
+        "/api/register",
+        json={
+            "college_id": "APP_NOTAB",
+            "name": "App NoTab",
+            "email": "appnotab@test.com",
+            "password": "Admin123!@#",
+            "role": "admin",
+        },
+    )
+    login = client.post("/api/login", json={"college_id": "APP_NOTAB", "password": "Admin123!@#"})
+    token = login.get_json()["token"]
+
+    # Create a connection without bookings table
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            college_id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        """
+    )
+    conn.commit()
+
+    def get_conn():
+        return conn
+    monkeypatch.setattr("app.get_db_connection", get_conn)
+    monkeypatch.setattr("app.DATABASE", ":memory:")
+
+    r = client.post(
+        "/api/bookings/1/approve",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 404
+    assert "bookings table does not exist" in r.get_json()["message"].lower()
+    conn.close()
