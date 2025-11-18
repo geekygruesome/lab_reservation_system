@@ -1,4 +1,4 @@
-# Manual Testing Guide - Lab Reservation System
+# Manual Testing Guide - Remote Lab Reservation System
 
 ## 🎯 Testing Checklist for Jira Story: "Approve or Reject Bookings"
 

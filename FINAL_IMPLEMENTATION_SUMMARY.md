@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-This document provides a complete summary of all fixes and implementations made to ensure the Lab Reservation System is fully functional with complete CRUD operations for lab management.
+This document provides a complete summary of all fixes and implementations made to ensure the Remote Lab Reservation System is fully functional with complete CRUD operations for lab management.
 
 ---
 

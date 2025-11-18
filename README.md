@@ -11,7 +11,7 @@
 
 ## 📋 Project Description
 
-A web-based lab reservation system that allows students to book lab slots, check availability, and receive confirmations. The system includes user authentication with JWT tokens, role-based access control, and a responsive web interface.
+A web-based Remote Lab Reservation System that allows students to book lab slots, check availability, and receive confirmations. The system includes user authentication with JWT tokens, role-based access control, and a responsive web interface.
 
 **Key Features:**
 - User registration and JWT-based authentication

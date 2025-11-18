@@ -1,7 +1,7 @@
 # Final Quality & CI/CD Report
 
 **Date:** November 15, 2025  
-**Project:** Lab Reservation System  
+**Project:** Remote Lab Reservation System  
 **Status:** ✅ **QUALITY METRICS VERIFIED**
 
 ---
