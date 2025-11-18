@@ -8,6 +8,7 @@ def raise_sqlite_error():
     class FakeConn:
         def cursor(self):
             raise sqlite3.Error("simulated db error")
+
         def close(self):
             pass
     return FakeConn()

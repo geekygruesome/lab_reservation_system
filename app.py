@@ -367,6 +367,7 @@ def static_files(filename):
     """Serve static files."""
     return app.send_static_file(filename)
 
+
 @app.route("/")
 def index():
     """Serve index.html or redirect based on authentication."""
@@ -579,7 +580,10 @@ def create_booking():
             # Check disabled labs for the selected date
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='disabled_labs'")
             if cursor.fetchone():
-                cursor.execute("SELECT 1 FROM disabled_labs WHERE lab_id = ? AND disabled_date = ?", (lab_id, booking_date))
+                cursor.execute(
+                    "SELECT 1 FROM disabled_labs WHERE lab_id = ? AND disabled_date = ?",
+                    (lab_id, booking_date)
+                )
                 if cursor.fetchone():
                     return jsonify({"message": "Lab is disabled for the selected date.", "success": False}), 400
 
@@ -601,18 +605,23 @@ def create_booking():
                     for s in slot_rows:
                         sstart = s['start_time'] if 'start_time' in s.keys() else s[0]
                         send = s['end_time'] if 'end_time' in s.keys() else s[1]
-                        if time_to_minutes(sstart) <= time_to_minutes(start_time) and time_to_minutes(send) >= time_to_minutes(end_time):
+                        if (time_to_minutes(sstart) <= time_to_minutes(start_time) and
+                                time_to_minutes(send) >= time_to_minutes(end_time)):
                             allowed_by_slot = True
                             break
 
             if not allowed_by_slot:
-                return jsonify({"message": "Requested time is outside configured availability slots.", "success": False}), 400
+                return jsonify({
+                    "message": "Requested time is outside configured availability slots.",
+                    "success": False
+                }), 400
 
             # Count approved bookings overlapping with requested time
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
             if cursor.fetchone():
                 cursor.execute(
-                    "SELECT COUNT(*) as cnt FROM bookings WHERE lab_name = ? AND booking_date = ? AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)",
+                    ("SELECT COUNT(*) as cnt FROM bookings WHERE lab_name = ? AND booking_date = ? "
+                     "AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)"),
                     (lab_name, booking_date, start_time, end_time)
                 )
                 cnt_row = cursor.fetchone()
@@ -626,7 +635,8 @@ def create_booking():
         # Passed all checks (or lab does not exist) - create booking
         created_at = datetime.datetime.now(timezone.utc).isoformat()
         cursor.execute(
-            "INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+            ("INSERT INTO bookings (college_id, lab_name, booking_date, start_time, end_time, "
+             "status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)"),
             (college_id, lab_name, booking_date, start_time, end_time, created_at),
         )
         conn.commit()
@@ -691,7 +701,10 @@ def check_booking_availability():
         # Check if lab disabled for date
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='disabled_labs'")
         if cursor.fetchone():
-            cursor.execute("SELECT 1 FROM disabled_labs WHERE lab_id = ? AND disabled_date = ?", (lab_id, booking_date))
+            cursor.execute(
+                "SELECT 1 FROM disabled_labs WHERE lab_id = ? AND disabled_date = ?",
+                (lab_id, booking_date)
+            )
             if cursor.fetchone():
                 return jsonify({"available": False, "message": "Lab is disabled for the selected date.", "success": True}), 200
 
@@ -713,18 +726,24 @@ def check_booking_availability():
                 for s in slot_rows:
                     sstart = s['start_time'] if 'start_time' in s.keys() else s[0]
                     send = s['end_time'] if 'end_time' in s.keys() else s[1]
-                    if time_to_minutes(sstart) <= time_to_minutes(start_time) and time_to_minutes(send) >= time_to_minutes(end_time):
+                    if (time_to_minutes(sstart) <= time_to_minutes(start_time) and
+                            time_to_minutes(send) >= time_to_minutes(end_time)):
                         allowed_by_slot = True
                         break
 
         if not allowed_by_slot:
-            return jsonify({"available": False, "message": "Requested time is outside configured availability slots.", "success": True}), 200
+            return jsonify({
+                "available": False,
+                "message": "Requested time is outside configured availability slots.",
+                "success": True
+            }), 200
 
         # Count approved bookings overlapping with requested time
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
         if cursor.fetchone():
             cursor.execute(
-                "SELECT COUNT(*) as cnt FROM bookings WHERE lab_name = ? AND booking_date = ? AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)",
+                ("SELECT COUNT(*) as cnt FROM bookings WHERE lab_name = ? AND booking_date = ? "
+                 "AND status = 'approved' AND NOT (end_time <= ? OR start_time >= ?)"),
                 (lab_name, booking_date, start_time, end_time)
             )
             cnt_row = cursor.fetchone()
@@ -733,8 +752,15 @@ def check_booking_availability():
             overlapping = 0
 
         available = overlapping < capacity
-        message = "Slot is available." if available else "Slot is not available (capacity reached)."
-        return jsonify({"available": available, "message": message, "overlapping": overlapping, "capacity": capacity, "success": True}), 200
+        message = ("Slot is available." if available
+                   else "Slot is not available (capacity reached).")
+        return jsonify({
+            "available": available,
+            "message": message,
+            "overlapping": overlapping,
+            "capacity": capacity,
+            "success": True
+        }), 200
     except sqlite3.Error as e:
         print(f"Database error in check_booking_availability: {e}")
         return jsonify({"message": "Database error occurred.", "success": False}), 500
@@ -1321,7 +1347,6 @@ def get_available_labs():
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
         user_role = payload.get('role')
-        user_college_id = payload.get('college_id')
     except jwt.InvalidTokenError:
         return jsonify({"error": "Invalid token"}), 401
 
@@ -1341,7 +1366,7 @@ def get_available_labs():
 
         # Get day of week for availability slots
         day_of_week = get_day_of_week(date_str)
-        
+
         # Get all labs
         cursor.execute("SELECT id, name, capacity, equipment FROM labs ORDER BY name ASC")
         labs_rows = cursor.fetchall()
@@ -1419,14 +1444,13 @@ def get_available_labs():
 
             # Get availability slots for this lab
             lab_slots = slots_by_lab.get(lab_id, [])
-            
+
             # Get bookings for this lab
             lab_bookings = bookings_by_lab.get(lab_name, [])
-            
+
             # Calculate occupancy based on slots and bookings
             total_slots = len(lab_slots)
-            total_possible = total_slots * capacity if total_slots > 0 else 0
-            
+
             # Count how many slots are fully booked (capacity reached)
             booked_slots = 0
             if total_slots > 0:
@@ -1441,10 +1465,10 @@ def get_available_labs():
                     # If bookings reach or exceed capacity, slot is fully booked
                     if overlapping_bookings >= capacity:
                         booked_slots += 1
-            
+
             # Free slots = total slots - fully booked slots
             total_free = max(0, total_slots - booked_slots)
-            
+
             # Determine status: Active if has slots or bookings, Not Available otherwise
             status = "Active" if (lab_slots or lab_bookings) else "Not Available"
             status_badge = "active" if (lab_slots or lab_bookings) else "inactive"
@@ -1452,7 +1476,7 @@ def get_available_labs():
             # Get unique time slots from approved bookings or availability slots
             time_slots = []
             slot_details = {}  # For admin: track student count per slot
-            
+
             # If we have availability slots, use those; otherwise use booking slots
             if lab_slots:
                 time_slots = [f"{s['start_time']}-{s['end_time']}" for s in lab_slots]
@@ -1461,7 +1485,7 @@ def get_available_labs():
                     slot_key = f"{booking['start_time']}-{booking['end_time']}"
                     if slot_key not in time_slots:
                         time_slots.append(slot_key)
-                
+
                 # For admin: count students per slot
                 if is_admin:
                     for booking in lab_bookings:
