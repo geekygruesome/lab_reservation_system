@@ -96,6 +96,27 @@
             color: #667eea;
             font-weight: 600;
         }
+        .register-button {
+            display: inline-block;
+            width: 100%;
+            padding: 12px;
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        .register-button:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -114,11 +135,16 @@
             <div class="loading" id="loading">Logging in...</div>
             <div class="message" id="message"></div>
         </form>
+        
+        <!-- Register Button -->
+        <div style="margin-top: 20px; text-align: center;">
+            <a href="/register.html" class="register-button">Register New Account</a>
+        </div>
+        
         <!-- Navigation Links -->
         <div style="text-align: center; margin-top: 20px;">
             <p style="color: #999; font-size: 14px; margin-bottom: 10px;">
-                <a href="/" style="color: #667eea; text-decoration: none; margin-right: 15px;">Home</a>
-                <a href="/register.html" style="color: #667eea; text-decoration: none; margin-left: 15px;">New user? Register here</a>
+                <a href="/" style="color: #667eea; text-decoration: none;">Home</a>
             </p>
         </div>
     </div>

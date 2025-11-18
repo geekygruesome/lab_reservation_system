@@ -706,7 +706,11 @@ def check_booking_availability():
                 (lab_id, booking_date)
             )
             if cursor.fetchone():
-                return jsonify({"available": False, "message": "Lab is disabled for the selected date.", "success": True}), 200
+                return jsonify({
+                    "available": False,
+                    "message": "Lab is disabled for the selected date.",
+                    "success": True
+                }), 200
 
         # Find availability slots for that day
         day = get_day_of_week(booking_date)
