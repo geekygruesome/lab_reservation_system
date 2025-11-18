@@ -546,8 +546,10 @@ def test_disable_lab_database_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise sqlite3.Error("Simulated database error")
+
         def close(self):
             pass
+
         def commit(self):
             raise sqlite3.Error("Simulated commit error")
 
@@ -583,6 +585,7 @@ def test_disable_lab_unexpected_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise Exception("Simulated unexpected error")
+
         def close(self):
             pass
 
@@ -722,6 +725,7 @@ def test_get_assigned_labs_database_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise sqlite3.Error("Simulated database error")
+
         def close(self):
             pass
 
@@ -756,6 +760,7 @@ def test_get_assigned_labs_unexpected_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise Exception("Simulated unexpected error")
+
         def close(self):
             pass
 
@@ -790,6 +795,7 @@ def test_get_bookings_database_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise sqlite3.Error("Simulated database error")
+
         def close(self):
             pass
 
@@ -820,6 +826,7 @@ def test_get_bookings_unexpected_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise Exception("Simulated unexpected error")
+
         def close(self):
             pass
 
@@ -850,6 +857,7 @@ def test_get_pending_bookings_database_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise sqlite3.Error("Simulated database error")
+
         def close(self):
             pass
 
@@ -880,6 +888,7 @@ def test_get_pending_bookings_unexpected_error(client, monkeypatch):
     class ErrorConn:
         def cursor(self):
             raise Exception("Simulated unexpected error")
+
         def close(self):
             pass
 

@@ -117,7 +117,7 @@ def test_check_availability_db_error(client, monkeypatch):
     # Need to create lab first, then mock DB error after date validation passes
     from datetime import datetime, timedelta
     import app as app_module
-    
+
     # Create lab first before mocking DB error
     conn = app_module.get_db_connection()
     cursor = conn.cursor()
@@ -126,7 +126,7 @@ def test_check_availability_db_error(client, monkeypatch):
         ("TestLab", 10, "[]", datetime.now().isoformat()),
     )
     conn.commit()
-    
+
     # Now mock DB error - this will trigger after date validation
     monkeypatch.setattr("app.get_db_connection", raise_sqlite_error)
     token = _generate_token({"college_id": "ERR2", "role": "student", "name": "Err"})
