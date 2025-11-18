@@ -69,10 +69,27 @@ A web-based lab reservation system that allows students to book lab slots, check
 
 4. Run the application
    ```bash
+   # Using Python directly
    python app.py
+   
+   # Or using npm script
+   npm start
    ```
 
    The application will start on `http://localhost:5000`
+
+5. (Optional) Create test users
+   ```bash
+   python create_test_users.py
+   ```
+
+6. Access the application
+   - Open your browser and go to: `http://localhost:5000`
+   - Frontend pages are automatically served by Flask:
+     - Home: `http://localhost:5000/`
+     - Register: `http://localhost:5000/register.html`
+     - Login: `http://localhost:5000/login.html`
+     - Dashboard: `http://localhost:5000/dashboard.html`
 
 ### Usage
 
@@ -94,18 +111,41 @@ A web-based lab reservation system that allows students to book lab slots, check
 PESU_RR_CSE_D_P32_Remote_Lab_Reservation_System_Dream-team/
 ├── app.py                    # Main Flask application
 ├── requirements.txt          # Python dependencies
-├── register.html            # Registration page
-├── login.html               # Login page
-├── dashboard.html           # User dashboard
-├── index.html               # Home/registration page
-├── setup.cfg                # Flake8 configuration
-├── tests/
+├── package.json              # Node.js scripts and dependencies
+├── setup.cfg                 # Flake8 configuration
+├── pytest.ini                # Pytest configuration
+├── calculate_lint_score.py   # Lint score calculator
+├── create_test_users.py      # Test user creation script
+├── templates/                # HTML templates (Flask convention)
+│   ├── index.html
+│   ├── register.html
+│   ├── login.html
+│   ├── dashboard.html
+│   ├── available_labs.html
+│   ├── admin_available_labs.html
+│   └── lab_assistant_labs.html
+├── data/                     # Database files
+│   └── lab_reservations.db
+├── docs/                     # Documentation files
+│   ├── README.md
+│   ├── QUICKSTART.md
+│   ├── MANUAL_TESTING_GUIDE.md
+│   └── ... (other docs)
+├── reports/                  # Test reports and coverage
+│   ├── coverage.xml
+│   └── bandit-report.json
+├── tests/                    # Test suite
 │   ├── __init__.py
-│   └── test_authentication_clean.py  # Comprehensive test suite
+│   ├── test_authentication_clean.py
+│   ├── test_available_labs.py
+│   └── ... (other tests)
+├── tools/                    # Utility scripts
+│   ├── check_db.py
+│   └── debug_register.py
 ├── .github/
 │   └── workflows/
-│       └── ci.yml           # GitHub Actions CI/CD workflow
-└── README.md                # This file
+│       └── ci-cd.yml         # 5-stage CI/CD pipeline
+└── README.md                 # This file
 ```
 
 ## 🏗️ Architecture
@@ -143,8 +183,14 @@ python -m pytest tests/ -v --cov=app --cov-report=term-missing
 # Run specific test file
 python -m pytest tests/test_authentication_clean.py -v
 
-# Run with coverage report
+# Run with coverage report (HTML)
 python -m pytest tests/ --cov=app --cov-report=html
+
+# Run with coverage XML (for CI/CD)
+python -m pytest tests/ --cov=app --cov-report=xml --cov-report=term-missing
+
+# Check coverage threshold (≥75%)
+python -m pytest tests/ --cov=app --cov-fail-under=75
 ```
 
 ### Test Coverage
@@ -163,26 +209,69 @@ Tests cover:
 ```bash
 # Run flake8 linting
 python -m flake8 app.py tests/ --count --statistics --max-line-length=120
+
+# Calculate lint score (must be ≥7.5/10)
+python calculate_lint_score.py
+
+# Or using npm script
+npm run lint
 ```
 
-Status: ✅ **Flake8 passing** (0 violations)
+Status: ✅ **Flake8 passing** (0 violations, Score: 10/10)
 
 ### Security
 ```bash
 # Run Bandit security check
 python -m bandit -r app.py -ll
+
+# Generate security report (JSON)
+python -m bandit -r app.py -ll -f json -o reports/bandit-report.json
+
+# Run npm security audit
+npm audit --audit-level=high
 ```
 
 ## 🚢 Deployment & CI/CD
 
-### GitHub Actions Workflow
-Automated CI pipeline runs on every push and PR:
-1. **Lint Check** - Flake8 code style validation
-2. **Security Scan** - Bandit vulnerability detection
-3. **Unit Tests** - Full test suite with coverage requirements
-4. **Coverage Report** - Codecov integration for tracking
+### 5-Stage CI/CD Pipeline
 
-View workflow: `.github/workflows/ci.yml`
+The project uses a comprehensive 5-stage CI/CD pipeline that runs automatically on every push and pull request:
+
+**Pipeline File:** `.github/workflows/ci-cd.yml`
+
+#### Stage 1: Build 🔨
+- Sets up Python (3.11, 3.12) and Node.js environments
+- Installs all dependencies (Python and Node.js)
+- Verifies build integrity
+- Creates build artifacts
+
+#### Stage 2: Lint 🔍
+- Runs Flake8 code style validation
+- Calculates lint score (must be ≥7.5/10)
+- Ensures code quality standards
+
+#### Stage 3: Security 🔒
+- Runs Bandit security scan on Python code
+- Performs npm security audit
+- Generates security reports
+- Identifies vulnerabilities
+
+#### Stage 4: Test 🧪
+- Runs full test suite with pytest
+- Generates coverage reports (requires ≥75% coverage)
+- Uploads coverage to Codecov
+- Validates all tests pass
+
+#### Stage 5: Deploy 🚀
+- Creates deployment package
+- Prepares artifacts for deployment
+- Ready for production/staging deployment
+- Only runs on `main` and `develop` branches
+
+**Triggers:**
+- Push to: `main`, `develop`, `feature/**`
+- Pull requests to: `main`, `develop`
+- Manual trigger via GitHub Actions UI
 
 ### Environment Variables
 For production, set these environment variables:

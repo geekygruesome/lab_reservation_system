@@ -2,8 +2,14 @@
 Script to create test users for manual testing.
 Run this script to create users mentioned in MANUAL_TESTING_GUIDE.md
 """
+import os
 import sqlite3
 from werkzeug.security import generate_password_hash
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(DATA_DIR, "lab_reservations.db")
 
 # Test users from MANUAL_TESTING_GUIDE.md
 test_users = [
@@ -38,7 +44,7 @@ test_users = [
 ]
 
 def create_test_users():
-    conn = sqlite3.connect("lab_reservations.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     # Ensure users table exists

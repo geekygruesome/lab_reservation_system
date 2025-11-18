@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Lab Reservation System</title>
+    <!-- Load custom CSS -->
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/custom.css') }}">
+    <!-- Load API config -->
+    <script src="{{ url_for('static', filename='js/config.js') }}"></script>
     <style>
         * {
             margin: 0;
@@ -111,15 +115,12 @@
             <div class="message" id="message"></div>
         </form>
         <!-- Navigation Links -->
-        <div style="text-align: center; margin-bottom: 20px;">
-            <div style="display: inline-flex; gap: 8px; background: #f3f4f6; padding: 4px; border-radius: 8px;">
-                <a href="index.html" style="padding: 8px 16px; background: white; color: #667eea; border-radius: 6px; text-decoration: none; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Register</a>
-                <a href="login.html" style="padding: 8px 16px; color: #667eea; text-decoration: none; font-weight: 500;">Login</a>
-            </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <p style="color: #999; font-size: 14px; margin-bottom: 10px;">
+                <a href="{{ url_for('index') }}" style="color: #667eea; text-decoration: none; margin-right: 15px;">Home</a>
+                <a href="{{ url_for('serve_register') }}" style="color: #667eea; text-decoration: none; margin-left: 15px;">New user? Register here</a>
+            </p>
         </div>
-        <p style="text-align: center; margin-top: 10px; color: #999; font-size: 14px;">
-            <a href="register.html" style="color: #667eea; text-decoration: none;">New user? Register here</a>
-        </p>
     </div>
 
     <script>
@@ -147,7 +148,7 @@
 
             try {
                 console.log('Attempting login for:', collegeId);
-                const response = await fetch('http://localhost:5000/api/login', {
+                const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -190,7 +191,7 @@
                     message.style.display = 'block';
                     
                     setTimeout(() => {
-                        window.location.href = 'dashboard.html';
+                        window.location.href = '/dashboard.html';
                     }, 500);
                 } else {
                     message.className = 'message error';
@@ -202,7 +203,7 @@
             } catch (error) {
                 console.error('Login error:', error);
                 message.className = 'message error';
-                message.textContent = 'Network error: ' + error.message + '. Please check if the server is running on http://localhost:5000';
+                message.textContent = 'Network error: ' + error.message + '. Please check if the server is running.';
                 message.style.display = 'block';
                 loading.style.display = 'none';
                 form.querySelector('button[type="submit"]').disabled = false;

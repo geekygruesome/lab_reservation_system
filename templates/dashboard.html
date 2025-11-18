@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Lab Reservation System</title>
+    <!-- Load API config -->
+    <script src="{{ url_for('static', filename='js/config.js') }}"></script>
     <style>
         * {
             margin: 0;
@@ -553,7 +555,7 @@
             const user = localStorage.getItem('user');
 
             if (!token || !user) {
-                window.location.href = 'login.html';
+                window.location.href = '/login.html';
                 return;
             }
 
@@ -615,7 +617,7 @@
         // Verify token with backend
         async function verifyToken(token) {
             try {
-                const response = await fetch('http://localhost:5000/api/me', {
+                const response = await fetch('/api/me', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                     },
@@ -637,7 +639,7 @@
         function confirmLogout() {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
-            window.location.href = 'login.html';
+            window.location.href = '/login.html';
         }
 
         function cancelLogout() {
@@ -741,7 +743,7 @@
         async function loadPendingBookings() {
             const token = localStorage.getItem('token');
             try {
-                const response = await fetch('http://localhost:5000/api/bookings/pending', {
+                const response = await fetch('/api/bookings/pending', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                     },
@@ -797,7 +799,7 @@
             }
 
             try {
-                const response = await fetch('http://localhost:5000/api/bookings', {
+                const response = await fetch('/api/bookings', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -847,7 +849,7 @@
         async function approveBooking(bookingId) {
             const token = localStorage.getItem('token');
             try {
-                const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/approve`, {
+                const response = await fetch(`/api/bookings/${bookingId}/approve`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -875,7 +877,7 @@
             }
 
             try {
-                const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/reject`, {
+                const response = await fetch(`/api/bookings/${bookingId}/reject`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -926,7 +928,7 @@
 
             try {
                 console.log('Loading labs...');
-                const response = await fetch('http://localhost:5000/api/labs', {
+                const response = await fetch('/api/labs', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -1015,7 +1017,7 @@
 
             try {
                 console.log('Loading lab for edit:', labId);
-                const response = await fetch(`http://localhost:5000/api/labs/${labId}`, {
+                const response = await fetch(`/api/labs/${labId}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -1098,7 +1100,7 @@
             };
 
             try {
-                const url = labId ? `http://localhost:5000/api/labs/${labId}` : 'http://localhost:5000/api/labs';
+                const url = labId ? `/api/labs/${labId}` : '/api/labs';
                 const method = labId ? 'PUT' : 'POST';
 
                 const response = await fetch(url, {
@@ -1145,7 +1147,7 @@
 
             try {
                 const response = await fetch(
-                    `http://localhost:5000/api/labs/${labId}/equipment/${encodedEquipmentName}/availability`,
+                    `/api/labs/${labId}/equipment/${encodedEquipmentName}/availability`,
                     {
                         method: 'PUT',
                         headers: {
@@ -1192,7 +1194,7 @@
 
             const token = localStorage.getItem('token');
             try {
-                const response = await fetch(`http://localhost:5000/api/labs/${labId}`, {
+                const response = await fetch(`/api/labs/${labId}`, {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -1228,7 +1230,7 @@
 
             // Load labs into dropdown
             try {
-                const response = await fetch('http://localhost:5000/api/labs', {
+                const response = await fetch('/api/labs', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -1311,7 +1313,7 @@
             };
 
             try {
-                const response = await fetch('http://localhost:5000/api/bookings', {
+                const response = await fetch('/api/bookings', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -1389,7 +1391,7 @@
 
             try {
                 console.log('Loading available labs...');
-                const response = await fetch('http://localhost:5000/api/labs', {
+                const response = await fetch('/api/labs', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -1456,7 +1458,7 @@
 
             try {
                 console.log('Loading equipment status...');
-                const response = await fetch('http://localhost:5000/api/labs', {
+                const response = await fetch('/api/labs', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',

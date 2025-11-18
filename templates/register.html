@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Register - Lab Reservation System</title>
+    <!-- Load custom CSS -->
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/custom.css') }}">
+    <!-- Load API config -->
+    <script src="{{ url_for('static', filename='js/config.js') }}"></script>
     <style>
         * {
             margin: 0;
@@ -145,15 +149,12 @@
             <div class="message" id="message"></div>
         </form>
         <!-- Navigation Links -->
-        <div style="text-align: center; margin-bottom: 20px;">
-            <div style="display: inline-flex; gap: 8px; background: #f3f4f6; padding: 4px; border-radius: 8px;">
-                <a href="index.html" style="padding: 8px 16px; color: #667eea; text-decoration: none; font-weight: 500;">Register</a>
-                <a href="login.html" style="padding: 8px 16px; background: white; color: #667eea; border-radius: 6px; text-decoration: none; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Login</a>
-            </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <p style="color: #999; font-size: 14px; margin-bottom: 10px;">
+                <a href="{{ url_for('index') }}" style="color: #667eea; text-decoration: none; margin-right: 15px;">Home</a>
+                Already have an account? <a href="{{ url_for('serve_login') }}" style="color: #667eea; text-decoration: none;">Login here</a>
+            </p>
         </div>
-        <p style="text-align: center; margin-top: 10px; color: #999; font-size: 14px;">
-            Already have an account? <a href="login.html" style="color: #667eea; text-decoration: none;">Login here</a>
-        </p>
     </div>
 
     <script>
@@ -174,7 +175,7 @@
             message.style.display = 'none';
 
             try {
-                const response = await fetch('http://localhost:5000/api/register', {
+                const response = await fetch('/api/register', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -196,7 +197,7 @@
                     message.style.display = 'block';
                     form.reset();
                     setTimeout(() => {
-                        window.location.href = 'login.html';
+                        window.location.href = '/login.html';
                     }, 2000);
                 } else {
                     message.className = 'message error';

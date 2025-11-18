@@ -43,6 +43,8 @@ htmlcov/
 # Database
 lab_reservations.db
 *.db
+data/
+!data/.gitkeep
 
 # Node
 node_modules/

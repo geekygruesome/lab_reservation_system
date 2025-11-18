@@ -1,7 +1,8 @@
 import os
 import sqlite3
 
-DB = 'lab_reservations.db'
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB = os.path.join(BASE_DIR, 'data', 'lab_reservations.db')
 
 def main():
     abs_path = os.path.abspath(DB)

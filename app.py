@@ -2,7 +2,7 @@ import sqlite3
 from functools import wraps
 import json
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
@@ -12,12 +12,15 @@ import datetime
 from datetime import timezone
 
 # --- Configuration ---
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 # Enable CORS so browser-based frontends (like index.html) can POST to /api/register
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Use an absolute path for the SQLite file (stable regardless of current working dir)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "lab_reservations.db")
+# Create data directory if it doesn't exist
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DATABASE = os.path.join(DATA_DIR, "lab_reservations.db")
 # Only print in non-testing environments to avoid CI noise
 if not os.getenv("PYTEST_CURRENT_TEST"):
     print("Using database file:", DATABASE)
@@ -358,60 +361,68 @@ def require_role(*allowed_roles):
 
 # --- Static File Routes ---
 
+# Flask automatically serves static files from /static, but we can add explicit route if needed
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    """Serve static files."""
+    return app.send_static_file(filename)
+
 @app.route("/")
 def index():
     """Serve index.html or redirect based on authentication."""
     # Check if user has token in request (optional - can just serve index.html)
-    return send_from_directory(BASE_DIR, "index.html")
+    return render_template("index.html")
 
 
 @app.route("/home")
 def home():
     """Alias for index page."""
-    return send_from_directory(BASE_DIR, "index.html")
+    return render_template("index.html")
 
 
 @app.route("/register.html")
 def serve_register():
     """Serve register.html."""
-    return send_from_directory(BASE_DIR, "register.html")
+    return render_template("register.html")
 
 
 @app.route("/login.html")
 def serve_login():
     """Serve login.html."""
-    return send_from_directory(BASE_DIR, "login.html")
+    return render_template("login.html")
 
 
 @app.route("/dashboard.html")
 def serve_dashboard():
     """Serve dashboard.html."""
-    return send_from_directory(BASE_DIR, "dashboard.html")
+    return render_template("dashboard.html")
 
 
 @app.route("/available_labs.html")
 def serve_available_labs():
     """Serve available_labs.html for students."""
-    response = send_from_directory(BASE_DIR, "available_labs.html")
+    response = render_template("available_labs.html")
     # Prevent caching to ensure users see latest version
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    return response
+    from flask import make_response
+    resp = make_response(response)
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 
 @app.route("/admin_available_labs.html")
 @require_role("admin")
 def serve_admin_available_labs():
     """Serve admin_available_labs.html for admins (requires auth via decorator)."""
-    return send_from_directory(BASE_DIR, "admin_available_labs.html")
+    return render_template("admin_available_labs.html")
 
 
 @app.route("/lab_assistant_labs.html")
 @require_role("lab_assistant")
 def serve_lab_assistant_labs():
     """Serve lab_assistant_labs.html for lab assistants (requires auth via decorator)."""
-    return send_from_directory(BASE_DIR, "lab_assistant_labs.html")
+    return render_template("lab_assistant_labs.html")
 
 
 # --- API Endpoint ---
