@@ -53,7 +53,7 @@ jobs:
           echo "Build verification complete"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: build-artifacts-${{ matrix.python-version }}
           path: |
@@ -165,7 +165,7 @@ jobs:
           echo "Security scans completed"
 
       - name: Upload security reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-reports
           path: reports/bandit-report.json
@@ -225,7 +225,7 @@ jobs:
           echo "✅ Coverage threshold met (≥75%)"
 
       - name: Upload coverage reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report-${{ matrix.python-version }}
           path: |
@@ -300,7 +300,7 @@ jobs:
           echo "5. ✅ Deploy - Deployment package ready"
 
       - name: Upload deployment artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: deployment-package
           path: deploy/
