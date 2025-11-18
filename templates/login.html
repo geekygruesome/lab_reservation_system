@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Lab Reservation System</title>
+    <!-- Load custom CSS -->
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/custom.css') }}">
+    <!-- Load API config -->
+    <script src="{{ url_for('static', filename='js/config.js') }}"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 400px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .message {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 5px;
+            text-align: center;
+            display: none;
+        }
+        .message.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+        .message.success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>Lab Reservation System</h1>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="collegeId">College ID</label>
+                <input type="text" id="collegeId" name="college_id" placeholder="e.g., PES123456" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Enter your password" required>
+            </div>
+            <button type="submit">Login</button>
+            <div class="loading" id="loading">Logging in...</div>
+            <div class="message" id="message"></div>
+        </form>
+        
+        <!-- Navigation Links -->
+        <div style="text-align: center; margin-top: 20px;">
+            <p style="color: #999; font-size: 14px; margin-bottom: 10px;">
+                <a href="/" style="color: #667eea; text-decoration: none;">Home</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('loginForm');
+        const loading = document.getElementById('loading');
+        const message = document.getElementById('message');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const collegeId = document.getElementById('collegeId').value.trim();
+            const password = document.getElementById('password').value;
+
+            // Validate inputs
+            if (!collegeId || !password) {
+                message.className = 'message error';
+                message.textContent = 'Please enter both College ID and Password.';
+                message.style.display = 'block';
+                return;
+            }
+
+            loading.style.display = 'block';
+            message.style.display = 'none';
+            form.querySelector('button[type="submit"]').disabled = true;
+
+            try {
+                console.log('Attempting login for:', collegeId);
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        college_id: collegeId,
+                        password: password,
+                    }),
+                });
+
+                console.log('Response status:', response.status);
+                
+                let data;
+                try {
+                    data = await response.json();
+                    console.log('Response data:', data);
+                } catch (parseError) {
+                    console.error('Failed to parse JSON:', parseError);
+                    message.className = 'message error';
+                    message.textContent = 'Server error: Invalid response. Please check if the server is running.';
+                    message.style.display = 'block';
+                    loading.style.display = 'none';
+                    form.querySelector('button[type="submit"]').disabled = false;
+                    return;
+                }
+
+                if (response.ok && data.success && data.token) {
+                    // Store token in localStorage
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify({
+                        college_id: collegeId,
+                        role: data.role || 'student',
+                        name: data.name || 'User',
+                    }));
+                    console.log('Login successful! Redirecting to dashboard...');
+                    
+                    // Small delay to show success, then redirect
+                    message.className = 'message success';
+                    message.textContent = 'Login successful! Redirecting...';
+                    message.style.display = 'block';
+                    
+                    setTimeout(() => {
+                        window.location.href = '/dashboard.html';
+                    }, 500);
+                } else {
+                    message.className = 'message error';
+                    message.textContent = data.message || 'Login failed. Please check your credentials and try again.';
+                    message.style.display = 'block';
+                    loading.style.display = 'none';
+                    form.querySelector('button[type="submit"]').disabled = false;
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                message.className = 'message error';
+                message.textContent = 'Network error: ' + error.message + '. Please check if the server is running.';
+                message.style.display = 'block';
+                loading.style.display = 'none';
+                form.querySelector('button[type="submit"]').disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

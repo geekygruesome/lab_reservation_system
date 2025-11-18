@@ -1,0 +1,1567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Lab Reservation System</title>
+    <!-- Load API config -->
+    <script src="{{ url_for('static', filename='js/config.js') }}"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            font-size: 24px;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .user-info span {
+            font-size: 14px;
+        }
+        .role-badge {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        button {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+        .welcome-card {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+        .welcome-card h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .welcome-card p {
+            color: #666;
+            font-size: 14px;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+        }
+        .card h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        .card p {
+            color: #666;
+            font-size: 14px;
+        }
+        .card-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .admin-only {
+            display: none !important;
+        }
+        .admin-only.visible {
+            display: block !important;
+        }
+        .student-only {
+            display: none !important;
+        }
+        .student-only.visible {
+            display: block !important;
+        }
+        .student-faculty-only {
+            display: none !important;
+        }
+        .student-faculty-only.visible {
+            display: block !important;
+        }
+        /* Toast notifications */
+        #toastContainer {
+            position: fixed;
+            right: 20px;
+            top: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .toast {
+            background: #111827;
+            color: white;
+            padding: 10px 14px;
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+            min-width: 220px;
+            font-weight: 600;
+            opacity: 0.98;
+        }
+        .toast.success { background: #10b981; }
+        .toast.error { background: #ef4444; }
+        .faculty-lab-assistant-only {
+            display: none !important;
+        }
+        .faculty-lab-assistant-only.visible {
+            display: block !important;
+        }
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #fcc;
+        }
+        .bookings-section {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+        .bookings-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .bookings-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .bookings-table th,
+        .bookings-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .bookings-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        .bookings-table tr:hover {
+            background: #f8f9fa;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status-approved {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-rejected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .btn-approve {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .btn-approve:hover {
+            background: #218838;
+        }
+        .btn-reject {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-reject:hover {
+            background: #c82333;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 30px;
+            border: 1px solid #888;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover,
+        .close:focus {
+            color: #000;
+        }
+        .logout-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+        }
+        .logout-modal-content {
+            background: white;
+            margin: 15% auto;
+            padding: 30px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 350px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        .logout-modal-content h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .logout-modal-content p {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        .logout-modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .logout-modal-buttons button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        .logout-confirm-btn {
+            background: #dc3545;
+            color: white;
+        }
+        .logout-confirm-btn:hover {
+            background: #c82333;
+        }
+        .logout-cancel-btn {
+            background: #6c757d;
+            color: white;
+        }
+        .logout-cancel-btn:hover {
+            background: #5a6268;
+        }
+        .btn-edit {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .btn-edit:hover {
+            background: #0056b3;
+        }
+        .btn-delete {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-delete:hover {
+            background: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Lab Reservation System</h1>
+        <div class="user-info">
+            <span id="userName">User</span>
+            <div class="role-badge" id="roleDisplay">Student</div>
+            <button onclick="showLogoutConfirmation()">Logout</button>
+        </div>
+    </header>
+    <div id="toastContainer"></div>
+
+    <!-- Logout Confirmation Modal -->
+    <div id="logoutConfirmModal" class="logout-modal">
+        <div class="logout-modal-content">
+            <h2>Confirm Logout</h2>
+            <p>Are you sure you want to log out?</p>
+            <div class="logout-modal-buttons">
+                <button class="logout-confirm-btn" onclick="confirmLogout()">Confirm</button>
+                <button class="logout-cancel-btn" onclick="cancelLogout()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="errorMessage" class="error" style="display: none;"></div>
+
+        <div class="welcome-card">
+            <h2>Welcome to your Dashboard</h2>
+            <p id="welcomeMessage">Get started by exploring the available options below.</p>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="card student-faculty-only" onclick="showBookingModal()">
+                <div class="card-icon">📅</div>
+                <h3 class="student-faculty-only">Reserve Lab</h3>
+                <p>Book a lab slot for your work</p>
+            </div>
+
+            <div class="card student-faculty-only" onclick="showMyBookings()">
+                <div class="card-icon">📋</div>
+                <h3 class="student-faculty-only">My Reservations</h3>
+                <p>View and manage your bookings</p>
+            </div>
+
+            <div class="card" onclick="showAvailableLabs()">
+                <div class="card-icon">🔍</div>
+                <h3>Available Labs</h3>
+                <p>Browse all available laboratory spaces</p>
+            </div>
+
+            <div class="card faculty-lab-assistant-only" onclick="showEquipmentStatus()">
+                <div class="card-icon">⚙️</div>
+                <h3>View Equipment Status</h3>
+                <p>Check equipment availability across all labs</p>
+            </div>
+
+            <div class="card admin-only">
+                <div class="card-icon">👥</div>
+                <h3>Manage Users</h3>
+                <p>View and manage user accounts</p>
+            </div>
+
+            <div class="card admin-only" onclick="showLabManagement()">
+                <div class="card-icon">🏪</div>
+                <h3>Manage Labs</h3>
+                <p>Configure laboratory resources</p>
+            </div>
+
+            <div class="card admin-only">
+                <div class="card-icon">📊</div>
+                <h3>Reports</h3>
+                <p>View usage statistics and analytics</p>
+            </div>
+        </div>
+
+        <!-- Admin Booking Approval Section -->
+        <div class="bookings-section admin-only" id="adminBookingsSection" style="display: none;">
+            <h2>Pending Booking Requests</h2>
+            <div id="bookingsContainer">
+                <div class="empty-state">Loading pending bookings...</div>
+            </div>
+        </div>
+
+        <!-- User Bookings Section -->
+        <div class="bookings-section" id="userBookingsSection" style="display: none;">
+            <h2>My Bookings</h2>
+            <div id="userBookingsContainer">
+                <div class="empty-state">Loading your bookings...</div>
+            </div>
+        </div>
+
+        <!-- Lab Management Section (Admin Only) -->
+        <div class="bookings-section admin-only" id="labManagementSection" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Lab Management</h2>
+                <button class="btn-approve" onclick="showCreateLabModal()">+ Add New Lab</button>
+            </div>
+            <div id="labsContainer">
+                <div class="empty-state">Loading labs...</div>
+            </div>
+        </div>
+
+        <!-- Booking Reservation Modal -->
+        <div id="bookingModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeBookingModal()">&times;</span>
+                <h2 id="bookingModalTitle">Reserve Lab</h2>
+                <form id="bookingForm" onsubmit="createBooking(event)">
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingLabName" style="display: block; margin-bottom: 5px; font-weight: 600;">Lab Name *</label>
+                        <select id="bookingLabName" name="lab_name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="">Select a lab...</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingDate" style="display: block; margin-bottom: 5px; font-weight: 600;">Booking Date *</label>
+                        <input type="date" id="bookingDate" name="booking_date" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" min="">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingStartTime" style="display: block; margin-bottom: 5px; font-weight: 600;">Start Time *</label>
+                        <input type="time" id="bookingStartTime" name="start_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="bookingEndTime" style="display: block; margin-bottom: 5px; font-weight: 600;">End Time *</label>
+                        <input type="time" id="bookingEndTime" name="end_time" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" id="checkAvailabilityBtn" onclick="checkAvailability()" style="background: #0ea5e9; color: white; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer;">Check Availability</button>
+                        <button type="button" onclick="closeBookingModal()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button type="submit" class="btn-approve">Create Booking</button>
+                    </div>
+                    <div id="availabilityResult" style="margin-top:10px; display:none; padding:10px; border-radius:6px; font-weight:600;"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Booking Confirmation Modal (replaces alert on successful booking) -->
+        <div id="bookingConfirmModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeBookingConfirmModal()">&times;</span>
+                <h2>Booking Confirmed</h2>
+                <div id="bookingConfirmContent" style="margin-top:12px; font-size:14px;"></div>
+                <div style="margin-top:18px; text-align:right;">
+                    <button onclick="closeBookingConfirmModal()" style="background:#0ea5e9; color:white; border:none; padding:8px 14px; border-radius:6px;">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Available Labs Section -->
+        <div class="bookings-section" id="availableLabsSection" style="display: none;">
+            <h2>Available Labs</h2>
+            <div id="availableLabsContainer">
+                <div class="empty-state">Loading available labs...</div>
+            </div>
+        </div>
+
+        <!-- Equipment Status Section -->
+        <div class="bookings-section" id="equipmentStatusSection" style="display: none;">
+            <h2>Equipment Status</h2>
+            <div id="equipmentStatusContainer">
+                <div class="empty-state">Loading equipment status...</div>
+            </div>
+        </div>
+
+        <!-- Lab Create/Edit Modal -->
+        <div id="labModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeLabModal()">&times;</span>
+                <h2 id="modalTitle">Create Lab</h2>
+                <form id="labForm" onsubmit="saveLab(event)">
+                    <div style="margin-bottom: 15px;">
+                        <label for="labName" style="display: block; margin-bottom: 5px; font-weight: 600;">Lab Name *</label>
+                        <input type="text" id="labName" name="name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="labCapacity" style="display: block; margin-bottom: 5px; font-weight: 600;">Capacity *</label>
+                        <input type="number" id="labCapacity" name="capacity" min="1" max="1000" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label for="labEquipment" style="display: block; margin-bottom: 5px; font-weight: 600;">Equipment (JSON array or comma-separated) *</label>
+                        <textarea id="labEquipment" name="equipment" rows="4" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;" placeholder='["Computer", "Projector", "Whiteboard"]'></textarea>
+                        <small style="color: #666;">Enter equipment as a JSON array or comma-separated list</small>
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" onclick="closeLabModal()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button type="submit" class="btn-approve">Save Lab</button>
+                    </div>
+                    <input type="hidden" id="labId" name="id">
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Check if user is logged in
+        function checkAuth() {
+            const token = localStorage.getItem('token');
+            const user = localStorage.getItem('user');
+
+            if (!token || !user) {
+                window.location.href = '/login.html';
+                return;
+            }
+
+            try {
+                const userData = JSON.parse(user);
+                document.getElementById('userName').textContent = userData.name || 'User';
+                document.getElementById('roleDisplay').textContent = userData.role || 'Student';
+
+                // Clear role-based visibility first
+                document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('visible'));
+                document.querySelectorAll('.faculty-lab-assistant-only').forEach(el => el.classList.remove('visible'));
+                document.querySelectorAll('.student-only').forEach(el => el.classList.remove('visible'));
+                // Hide sections
+                document.getElementById('adminBookingsSection').style.display = 'none';
+                document.getElementById('userBookingsSection').style.display = 'none';
+                document.getElementById('labManagementSection').style.display = 'none';
+                document.getElementById('availableLabsSection').style.display = 'none';
+                document.getElementById('equipmentStatusSection').style.display = 'none';
+
+                if (userData.role === 'admin') {
+                    document.querySelectorAll('.admin-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('adminBookingsSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! You have administrative access. Click "Manage Labs" to create labs.`;
+                    loadPendingBookings();
+                } else if (userData.role === 'student') {
+                    // Students see booking cards and their bookings
+                    document.querySelectorAll('.student-only').forEach(element => element.classList.add('visible'));
+                    document.querySelectorAll('.student-faculty-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('userBookingsSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! Select an option to continue.`;
+                    loadUserBookings();
+                } else if (userData.role === 'faculty') {
+                    // Faculty see booking cards and can make reservations like students, plus equipment management
+                    document.querySelectorAll('.student-faculty-only').forEach(element => element.classList.add('visible'));
+                    document.querySelectorAll('.faculty-lab-assistant-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('userBookingsSection').style.display = 'block';
+                    document.getElementById('equipmentStatusSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! You can make reservations and manage equipment.`;
+                    loadUserBookings();
+                    loadEquipmentStatus();
+                } else if (userData.role === 'lab_assistant') {
+                    // Lab assistant see equipment management
+                    document.querySelectorAll('.faculty-lab-assistant-only').forEach(element => element.classList.add('visible'));
+                    document.getElementById('equipmentStatusSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! Use the Equipment Status view to manage equipment.`;
+                    loadEquipmentStatus();
+                } else {
+                    document.getElementById('welcomeMessage').textContent = `Welcome, ${userData.name}! Select an option to continue.`;
+                }
+
+                // Verify token with backend
+                verifyToken(token);
+            } catch (error) {
+                console.error('Error parsing user data:', error);
+                logout();
+            }
+        }
+
+        // Verify token with backend
+        async function verifyToken(token) {
+            try {
+                const response = await fetch('/api/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (!response.ok) {
+                    logout();
+                }
+            } catch (error) {
+                console.error('Token verification failed:', error);
+            }
+        }
+
+        // Logout functions
+        function showLogoutConfirmation() {
+            document.getElementById('logoutConfirmModal').style.display = 'block';
+        }
+
+        function confirmLogout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/login.html';
+        }
+
+        function cancelLogout() {
+            document.getElementById('logoutConfirmModal').style.display = 'none';
+        }
+
+        // Close logout modal when clicking outside
+        window.addEventListener('click', function(event) {
+            const modal = document.getElementById('logoutConfirmModal');
+            if (event.target === modal) {
+                cancelLogout();
+            }
+        });
+
+        // UI Helpers: Toasts and booking confirmation
+        function showToast(message, type='success') {
+            try {
+                const container = document.getElementById('toastContainer');
+                const t = document.createElement('div');
+                t.className = `toast ${type === 'error' ? 'error' : 'success'}`;
+                t.textContent = message;
+                container.appendChild(t);
+                setTimeout(() => {
+                    t.style.transition = 'opacity 300ms ease';
+                    t.style.opacity = '0';
+                    setTimeout(() => container.removeChild(t), 350);
+                }, 3500);
+            } catch (e) {
+                console.warn('Toast failed', e);
+            }
+        }
+
+        function showBookingConfirmation(details) {
+            const box = document.getElementById('bookingConfirmContent');
+            box.innerHTML = `
+                <div><strong>Lab:</strong> ${details.lab_name}</div>
+                <div><strong>Date:</strong> ${details.booking_date}</div>
+                <div><strong>Start:</strong> ${details.start_time}</div>
+                <div><strong>End:</strong> ${details.end_time}</div>
+                <div style="margin-top:8px;"><strong>Booking ID:</strong> ${details.booking_id}</div>
+                <div style="margin-top:8px; color:#374151; font-size:13px;">${details.message || ''}</div>
+            `;
+            document.getElementById('bookingConfirmModal').style.display = 'block';
+        }
+
+        function closeBookingConfirmModal() {
+            document.getElementById('bookingConfirmModal').style.display = 'none';
+            // Refresh user's bookings to reflect new booking
+            loadUserBookings();
+        }
+
+        async function checkAvailability() {
+            const token = localStorage.getItem('token');
+            const labName = document.getElementById('bookingLabName').value.trim();
+            const bookingDate = document.getElementById('bookingDate').value;
+            const startTime = document.getElementById('bookingStartTime').value;
+            const endTime = document.getElementById('bookingEndTime').value;
+            const resDiv = document.getElementById('availabilityResult');
+            resDiv.style.display = 'none';
+
+            if (!labName || !bookingDate || !startTime || !endTime) {
+                resDiv.style.display = 'block';
+                resDiv.style.background = '#fff3f2';
+                resDiv.style.color = '#9f1239';
+                resDiv.textContent = 'Please fill all fields to check availability.';
+                return;
+            }
+
+            try {
+                const url = `/api/bookings/check?lab_name=${encodeURIComponent(labName)}&booking_date=${encodeURIComponent(bookingDate)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
+                const resp = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await resp.json();
+                resDiv.style.display = 'block';
+                if (resp.ok && data && data.success) {
+                    if (data.available) {
+                        resDiv.style.background = '#d1fae5';
+                        resDiv.style.color = '#065f46';
+                        resDiv.textContent = '✅ Slot is available';
+                    } else {
+                        resDiv.style.background = '#fee2e2';
+                        resDiv.style.color = '#7f1d1d';
+                        resDiv.textContent = `❌ Not available: ${data.message || 'Capacity reached or outside slot'}`;
+                    }
+                } else {
+                    resDiv.style.background = '#fee2e2';
+                    resDiv.style.color = '#7f1d1d';
+                    resDiv.textContent = data.message || 'Failed to check availability';
+                }
+            } catch (e) {
+                console.error('Availability check failed', e);
+                resDiv.style.display = 'block';
+                resDiv.style.background = '#fee2e2';
+                resDiv.style.color = '#7f1d1d';
+                resDiv.textContent = 'Network error while checking availability';
+            }
+        }
+
+        // Load pending bookings for admin
+        async function loadPendingBookings() {
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch('/api/bookings/pending', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load bookings');
+                }
+
+                const data = await response.json();
+                const container = document.getElementById('bookingsContainer');
+
+                if (data.bookings && data.bookings.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>User</th><th>Email</th><th>Lab</th><th>Date</th><th>Time</th><th>Status</th><th>Actions</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.bookings.forEach(booking => {
+                        html += `<tr>
+                            <td>${booking.id}</td>
+                            <td>${booking.name}</td>
+                            <td>${booking.email}</td>
+                            <td>${booking.lab_name}</td>
+                            <td>${booking.booking_date}</td>
+                            <td>${booking.start_time} - ${booking.end_time}</td>
+                            <td><span class="status-badge status-${booking.status}">${booking.status}</span></td>
+                            <td>
+                                <button class="btn-approve" onclick="approveBooking(${booking.id})">Approve</button>
+                                <button class="btn-reject" onclick="rejectBooking(${booking.id})">Reject</button>
+                            </td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No pending bookings</div>';
+                }
+            } catch (error) {
+                console.error('Error loading pending bookings:', error);
+                document.getElementById('bookingsContainer').innerHTML =
+                    '<div class="empty-state">Error loading bookings</div>';
+            }
+        }
+
+        // Load user bookings
+        async function loadUserBookings() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('userBookingsContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/bookings', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Bookings response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load bookings:', errorData);
+                    throw new Error(errorData.message || 'Failed to load bookings');
+                }
+
+                const data = await response.json();
+                console.log('Bookings data:', data);
+                const container = document.getElementById('userBookingsContainer');
+
+                if (data && data.success && data.bookings && data.bookings.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>Lab</th><th>Date</th><th>Time</th><th>Status</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.bookings.forEach(booking => {
+                        html += `<tr>
+                            <td>${booking.id}</td>
+                            <td>${booking.lab_name}</td>
+                            <td>${booking.booking_date}</td>
+                            <td>${booking.start_time} - ${booking.end_time}</td>
+                            <td><span class="status-badge status-${booking.status}">${booking.status}</span></td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No bookings found. Create your first booking above.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading user bookings:', error);
+                document.getElementById('userBookingsContainer').innerHTML =
+                    `<div class="empty-state">Error loading bookings: ${error.message}. Check console for details.</div>`;
+            }
+        }
+
+        // Approve booking
+        async function approveBooking(bookingId) {
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch(`/api/bookings/${bookingId}/approve`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (response.ok) {
+                    showToast('Booking approved successfully!', 'success');
+                    loadPendingBookings();
+                } else {
+                    const data = await response.json().catch(()=>({message:'Failed'}));
+                    showToast(data.message || 'Failed to approve booking', 'error');
+                }
+            } catch (error) {
+                console.error('Error approving booking:', error);
+                showToast('Error approving booking', 'error');
+            }
+        }
+
+        // Reject booking
+        async function rejectBooking(bookingId) {
+            const token = localStorage.getItem('token');
+            if (!confirm('Are you sure you want to reject this booking?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/bookings/${bookingId}/reject`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (response.ok) {
+                    showToast('Booking rejected successfully!', 'success');
+                    loadPendingBookings();
+                } else {
+                    const data = await response.json().catch(()=>({message:'Failed'}));
+                    showToast(data.message || 'Failed to reject booking', 'error');
+                }
+            } catch (error) {
+                console.error('Error rejecting booking:', error);
+                showToast('Error rejecting booking', 'error');
+            }
+        }
+
+        // Lab Management Functions
+        function showLabManagement() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('userBookingsSection').style.display = 'none';
+            document.getElementById('availableLabsSection').style.display = 'none';
+            document.getElementById('equipmentStatusSection').style.display = 'none';
+            
+            // Show lab management section
+            const labSection = document.getElementById('labManagementSection');
+            labSection.style.display = 'block';
+            labSection.classList.add('visible');
+            
+            // Scroll to lab management section smoothly
+            setTimeout(() => {
+                labSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+            
+            loadLabs();
+        }
+
+        async function loadLabs() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('labsContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
+            try {
+                console.log('Loading labs...');
+                const response = await fetch('/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Labs response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load labs:', errorData);
+                    throw new Error(errorData.message || 'Failed to load labs');
+                }
+
+                const data = await response.json();
+                console.log('Labs data:', data);
+                console.log('First lab equipment_availability:', data.labs && data.labs[0] ? data.labs[0].equipment_availability : 'No labs');
+                const container = document.getElementById('labsContainer');
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th><th>Actions</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.labs.forEach(lab => {
+                        // Parse equipment if it's JSON string
+                        let equipmentDisplay = lab.equipment;
+                        let equipmentList = [];
+                        try {
+                            const eq = JSON.parse(lab.equipment);
+                            if (Array.isArray(eq)) {
+                                equipmentDisplay = eq.join(', ');
+                                equipmentList = eq;
+                            }
+                        } catch (e) {
+                            // Not JSON, try comma-separated
+                            if (lab.equipment.includes(',')) {
+                                equipmentList = lab.equipment.split(',').map(e => e.trim());
+                            } else {
+                                equipmentList = [lab.equipment.trim()];
+                            }
+                        }
+                        
+                        const safeName = lab.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        
+                        html += `<tr>
+                            <td>${lab.id}</td>
+                            <td>${lab.name}</td>
+                            <td>${lab.capacity}</td>
+                            <td>${equipmentDisplay}</td>
+                            <td>${new Date(lab.created_at).toLocaleDateString()}</td>
+                            <td>
+                                <button class="btn-edit" onclick="editLab(${lab.id})">Edit</button>
+                                <button class="btn-delete" onclick="deleteLab(${lab.id}, '${safeName}')">Delete</button>
+                            </td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No labs found. Click "Add New Lab" to create one.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading labs:', error);
+                document.getElementById('labsContainer').innerHTML =
+                    `<div class="empty-state">Error loading labs: ${error.message}. Check console for details.</div>`;
+            }
+        }
+
+        function showCreateLabModal() {
+            document.getElementById('labId').value = '';
+            document.getElementById('labName').value = '';
+            document.getElementById('labCapacity').value = '';
+            document.getElementById('labEquipment').value = '';
+            document.getElementById('modalTitle').textContent = 'Create Lab';
+            document.getElementById('labModal').style.display = 'block';
+        }
+
+        async function editLab(labId) {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+
+            try {
+                console.log('Loading lab for edit:', labId);
+                const response = await fetch(`/api/labs/${labId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Get lab response:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    throw new Error(errorData.message || 'Failed to load lab');
+                }
+
+                const data = await response.json();
+                console.log('Lab data:', data);
+
+                if (!data.success || !data.lab) {
+                    throw new Error('Invalid lab data received');
+                }
+
+                const lab = data.lab;
+
+                document.getElementById('labId').value = lab.id;
+                document.getElementById('labName').value = lab.name;
+                document.getElementById('labCapacity').value = lab.capacity;
+                
+                // Parse equipment if it's JSON string
+                let equipmentValue = lab.equipment;
+                try {
+                    const eq = JSON.parse(lab.equipment);
+                    if (Array.isArray(eq)) {
+                        equipmentValue = JSON.stringify(eq, null, 2);
+                    }
+                } catch (e) {
+                    // Not JSON, use as-is
+                }
+                document.getElementById('labEquipment').value = equipmentValue;
+                
+                document.getElementById('modalTitle').textContent = 'Edit Lab';
+                document.getElementById('labModal').style.display = 'block';
+            } catch (error) {
+                console.error('Error loading lab:', error);
+                alert('Failed to load lab data: ' + error.message);
+            }
+        }
+
+        function closeLabModal() {
+            document.getElementById('labModal').style.display = 'none';
+        }
+
+        async function saveLab(event) {
+            event.preventDefault();
+            const token = localStorage.getItem('token');
+            const labId = document.getElementById('labId').value;
+            const name = document.getElementById('labName').value.trim();
+            const capacity = parseInt(document.getElementById('labCapacity').value);
+            let equipment = document.getElementById('labEquipment').value.trim();
+
+            // Try to parse as JSON, if fails, treat as comma-separated
+            try {
+                const parsed = JSON.parse(equipment);
+                if (Array.isArray(parsed)) {
+                    equipment = parsed;
+                } else {
+                    equipment = [equipment];
+                }
+            } catch (e) {
+                // Not valid JSON, split by comma
+                if (equipment.includes(',')) {
+                    equipment = equipment.split(',').map(item => item.trim()).filter(item => item);
+                } else {
+                    equipment = [equipment];
+                }
+            }
+
+            const payload = {
+                name: name,
+                capacity: capacity,
+                equipment: equipment
+            };
+
+            try {
+                const url = labId ? `/api/labs/${labId}` : '/api/labs';
+                const method = labId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                console.log('Save lab response:', response.status, data);
+
+                if (response.ok && data.success) {
+                    showToast(data.message || 'Lab saved successfully!', 'success');
+                    closeLabModal();
+                    // Refresh the lab list
+                    loadLabs();
+                    // If booking modal was open, refresh it too
+                    const bookingModal = document.getElementById('bookingModal');
+                    if (bookingModal && bookingModal.style.display === 'block') {
+                        showBookingModal();
+                    }
+                } else {
+                    showToast(data.message || 'Failed to save lab', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving lab:', error);
+                showToast('Error saving lab: ' + error.message, 'error');
+            }
+        }
+
+        async function toggleEquipmentAvailability(labId, equipmentName, newStatus) {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                showToast('Please login again', 'error');
+                window.location.href = '/login.html';
+                return;
+            }
+
+            const isAvailable = newStatus ? 'yes' : 'no';
+            const encodedEquipmentName = encodeURIComponent(equipmentName);
+
+            try {
+                const response = await fetch(
+                    `/api/labs/${labId}/equipment/${encodedEquipmentName}/availability`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ is_available: isAvailable }),
+                    }
+                );
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    // Update the button in-place for immediate feedback
+                        // Update the button in-place for immediate feedback (for equipment status page)
+                    try {
+                        const btnId = `equip-btn-${labId}-${equipmentName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                        const btn = document.getElementById(btnId);
+                    if (btn) {
+                        const nowText = isAvailable === 'yes' ? 'Available' : 'Not Available';
+                        const bg = isAvailable === 'yes' ? '#28a745' : '#dc3545';
+                        btn.textContent = nowText;
+                        btn.style.background = bg;
+                    }
+                    } catch (e) {
+                            // fallback to reload
+                            loadEquipmentStatus();
+                    }
+                    showToast(data.message || 'Equipment availability updated', 'success');
+                } else {
+                    showToast(data.message || 'Failed to update equipment availability', 'error');
+                }
+            } catch (error) {
+                console.error('Error updating equipment availability:', error);
+                showToast('Error updating equipment availability: ' + error.message, 'error');
+            }
+        }
+
+            
+
+        async function deleteLab(labId, labName) {
+            if (!confirm(`Are you sure you want to delete lab "${labName}"? This will also delete all associated availability slots.`)) {
+                return;
+            }
+
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch(`/api/labs/${labId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                const data = await response.json();
+                console.log('Delete lab response:', response.status, data);
+
+                if (response.ok && data.success) {
+                    showToast(data.message || 'Lab deleted successfully!', 'success');
+                    loadLabs();
+                } else {
+                    showToast(data.message || 'Failed to delete lab', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting lab:', error);
+                showToast('Error deleting lab: ' + error.message, 'error');
+            }
+        }
+
+        // Booking Reservation Functions
+        async function showBookingModal() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('Not authenticated. Please login again.');
+                return;
+            }
+
+            // Set minimum date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('bookingDate').setAttribute('min', today);
+
+            // Load labs into dropdown
+            try {
+                const response = await fetch('/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load labs');
+                }
+
+                const data = await response.json();
+                const labSelect = document.getElementById('bookingLabName');
+                labSelect.innerHTML = '<option value="">Select a lab...</option>';
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    data.labs.forEach(lab => {
+                        const option = document.createElement('option');
+                        option.value = lab.name;
+                        option.textContent = `${lab.name} (Capacity: ${lab.capacity})`;
+                        labSelect.appendChild(option);
+                    });
+                    document.getElementById('bookingModal').style.display = 'block';
+                } else {
+                    // Check if user is admin
+                    const user = localStorage.getItem('user');
+                    let isAdmin = false;
+                    try {
+                        const userData = JSON.parse(user);
+                        isAdmin = userData.role === 'admin';
+                    } catch (e) {
+                        console.error('Error parsing user data:', e);
+                    }
+                    
+                    if (isAdmin) {
+                        const createLab = confirm('No labs available. Would you like to create a lab now? Click OK to go to Lab Management.');
+                        if (createLab) {
+                            showLabManagement();
+                            setTimeout(() => showCreateLabModal(), 300);
+                        }
+                    } else {
+                        alert('No labs available. Please contact an admin to create labs first.');
+                    }
+                    return;
+                }
+            } catch (error) {
+                console.error('Error loading labs:', error);
+                alert('Failed to load labs: ' + error.message);
+            }
+        }
+
+        function closeBookingModal() {
+            document.getElementById('bookingModal').style.display = 'none';
+            document.getElementById('bookingForm').reset();
+        }
+
+        async function createBooking(event) {
+            event.preventDefault();
+            const token = localStorage.getItem('token');
+            if (!token) {
+                showToast('Not authenticated. Please login again.', 'error');
+                return;
+            }
+
+            const labName = document.getElementById('bookingLabName').value.trim();
+            const bookingDate = document.getElementById('bookingDate').value;
+            const startTime = document.getElementById('bookingStartTime').value;
+            const endTime = document.getElementById('bookingEndTime').value;
+
+            // Validate time range
+            if (startTime >= endTime) {
+                alert('End time must be after start time.');
+                return;
+            }
+
+            const payload = {
+                lab_name: labName,
+                booking_date: bookingDate,
+                start_time: startTime,
+                end_time: endTime
+            };
+
+            try {
+                const response = await fetch('/api/bookings', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                console.log('Create booking response:', response.status, data);
+
+                if (response.ok && data.success) {
+                    // Show styled confirmation with booking details
+                    showBookingConfirmation({
+                        lab_name: labName,
+                        booking_date: bookingDate,
+                        start_time: startTime,
+                        end_time: endTime,
+                        booking_id: data.booking_id,
+                        message: data.message || 'Booking created successfully!'
+                    });
+                    closeBookingModal();
+                } else {
+                    showToast(data.message || 'Failed to create booking', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating booking:', error);
+                showToast('Error creating booking: ' + error.message, 'error');
+            }
+        }
+
+        function showMyBookings() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('labManagementSection').style.display = 'none';
+            document.getElementById('availableLabsSection').style.display = 'none';
+            document.getElementById('equipmentStatusSection').style.display = 'none';
+            
+            // Show user bookings section
+            document.getElementById('userBookingsSection').style.display = 'block';
+            loadUserBookings();
+        }
+
+        async function showAvailableLabs() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('userBookingsSection').style.display = 'none';
+            document.getElementById('labManagementSection').style.display = 'none';
+            document.getElementById('equipmentStatusSection').style.display = 'none';
+            
+            // Show available labs section
+            document.getElementById('availableLabsSection').style.display = 'block';
+            await loadAvailableLabs();
+        }
+
+        async function showEquipmentStatus() {
+            // Hide other sections
+            document.getElementById('adminBookingsSection').style.display = 'none';
+            document.getElementById('userBookingsSection').style.display = 'none';
+            document.getElementById('labManagementSection').style.display = 'none';
+            document.getElementById('availableLabsSection').style.display = 'none';
+            
+            // Show equipment status section
+            document.getElementById('equipmentStatusSection').style.display = 'block';
+            await loadEquipmentStatus();
+        }
+
+        async function loadAvailableLabs() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('availableLabsContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
+            try {
+                console.log('Loading available labs...');
+                const response = await fetch('/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Available labs response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load labs:', errorData);
+                    throw new Error(errorData.message || 'Failed to load labs');
+                }
+
+                const data = await response.json();
+                console.log('Available labs data:', data);
+                const container = document.getElementById('availableLabsContainer');
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>ID</th><th>Name</th><th>Capacity</th><th>Equipment</th><th>Created At</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.labs.forEach(lab => {
+                        // Parse equipment if it's JSON string
+                        let equipmentDisplay = lab.equipment;
+                        try {
+                            const eq = JSON.parse(lab.equipment);
+                            if (Array.isArray(eq)) {
+                                equipmentDisplay = eq.join(', ');
+                            }
+                        } catch (e) {
+                            // Not JSON, use as-is
+                        }
+                        
+                        html += `<tr>
+                            <td>${lab.id}</td>
+                            <td>${lab.name}</td>
+                            <td>${lab.capacity}</td>
+                            <td>${equipmentDisplay}</td>
+                            <td>${new Date(lab.created_at).toLocaleDateString()}</td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No labs available. Contact an admin to create labs.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading available labs:', error);
+                document.getElementById('availableLabsContainer').innerHTML =
+                    `<div class="empty-state">Error loading labs: ${error.message}. Check console for details.</div>`;
+            }
+        }
+
+        async function loadEquipmentStatus() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                document.getElementById('equipmentStatusContainer').innerHTML =
+                    '<div class="empty-state">Not authenticated. Please login again.</div>';
+                return;
+            }
+
+            try {
+                console.log('Loading equipment status...');
+                const response = await fetch('/api/labs', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                console.log('Equipment status response status:', response.status);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    console.error('Failed to load equipment status:', errorData);
+                    throw new Error(errorData.message || 'Failed to load equipment status');
+                }
+
+                const data = await response.json();
+                console.log('Equipment status data:', data);
+                const container = document.getElementById('equipmentStatusContainer');
+
+                // Determine if current user has permission to edit equipment
+                let userRole = 'student';
+                try {
+                    const userRaw = localStorage.getItem('user');
+                    const u = userRaw ? JSON.parse(userRaw) : null;
+                    userRole = u && u.role ? u.role : 'student';
+                } catch (e) { userRole = 'student'; }
+                const canEdit = (userRole === 'faculty' || userRole === 'lab_assistant');
+
+                if (data && data.success && data.labs && data.labs.length > 0) {
+                    let html = '<table class="bookings-table"><thead><tr>';
+                    html += '<th>Lab Name</th><th>Equipment</th><th>Equipment Status</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.labs.forEach(lab => {
+                        // Parse equipment if it's JSON string
+                        let equipmentDisplay = lab.equipment;
+                        try {
+                            const eq = JSON.parse(lab.equipment);
+                            if (Array.isArray(eq)) {
+                                equipmentDisplay = eq.join(', ');
+                            }
+                        } catch (e) {
+                            // Not JSON, use as-is
+                        }
+                        
+                        // Build equipment availability display
+                        let equipmentAvailabilityHtml = '';
+                        let allAvailable = true;
+                        let hasEquipment = false;
+                        
+                        if (lab.equipment_availability && lab.equipment_availability.length > 0) {
+                            hasEquipment = true;
+                            equipmentAvailabilityHtml = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                            lab.equipment_availability.forEach(eq => {
+                                const isAvailable = eq.is_available === 'yes';
+                                if (!isAvailable) allAvailable = false;
+                                const statusColor = isAvailable ? '#28a745' : '#dc3545';
+                                const statusText = isAvailable ? 'Available' : 'Not Available';
+                                const btnId = `equip-btn-${lab.id}-${eq.equipment_name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                                equipmentAvailabilityHtml += `
+                                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px; background: #f8f9fa; border-radius: 4px;">
+                                        <span style="font-weight: 600; min-width: 150px;">${eq.equipment_name}:</span>
+                                        ${canEdit ? `<button id="${btnId}" onclick="toggleEquipmentAvailability(${lab.id}, '${eq.equipment_name.replace(/'/g, "\\'").replace(/\"/g, '&quot;')}', ${!isAvailable})" style="background:${statusColor}; color:white; padding:6px 12px; border-radius:6px; border:none; font-weight:700; cursor:pointer;">${statusText}</button>` : `<span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">${statusText}</span>`}
+                                    </div>
+                                `;
+                            });
+                            equipmentAvailabilityHtml += '</div>';
+                        } else {
+                            equipmentAvailabilityHtml = '<span style="color: #999;">No equipment configured</span>';
+                        }
+                        
+                        html += `<tr>
+                            <td><strong>${lab.name}</strong></td>
+                            <td>${equipmentDisplay || 'N/A'}</td>
+                            <td>${equipmentAvailabilityHtml}</td>
+                        </tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state">No labs available. Contact an admin to create labs.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading equipment status:', error);
+                document.getElementById('equipmentStatusContainer').innerHTML =
+                    `<div class="empty-state">Error loading equipment status: ${error.message}. Check console for details.</div>`;
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const labModal = document.getElementById('labModal');
+            const bookingModal = document.getElementById('bookingModal');
+            if (event.target === labModal) {
+                closeLabModal();
+            }
+            if (event.target === bookingModal) {
+                closeBookingModal();
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', checkAuth);
+    </script>
+</body>
+</html>

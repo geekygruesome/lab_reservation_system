@@ -1,0 +1,17 @@
+# CODEOWNERS file for repository access control
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owners - these users are requested for review when anyone opens a pull request
+* @geekygruesome @Deepa-15 @gourimh @atkdishitha12-beep @Crashbadger24 @Srujkul @srishmath @sapnavm
+
+# Specific file/folder ownership
+# Documentation
+docs/ @geekygruesome @Deepa-15 @gourimh @atkdishitha12-beep @Crashbadger24 @Srujkul @srishmath @sapnavm
+
+# Configuration files
+*.json @geekygruesome @Deepa-15 @gourimh @atkdishitha12-beep @Crashbadger24 @Srujkul @srishmath @sapnavm
+*.yml @geekygruesome @Deepa-15 @gourimh @atkdishitha12-beep @Crashbadger24 @Srujkul @srishmath @sapnavm
+*.yaml @geekygruesome @Deepa-15 @gourimh @atkdishitha12-beep @Crashbadger24 @Srujkul @srishmath @sapnavm
+
+# Student IDs for reference:
+# geekygruesome, Deepa-15, gourimh, atkdishitha12-beep
