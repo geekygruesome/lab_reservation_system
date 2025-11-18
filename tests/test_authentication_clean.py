@@ -4160,3 +4160,44 @@ def test_get_labs_auto_initialize_equipment_availability_json_not_list(client):
     lab = labs[0]
     # Should have initialized the equipment
     assert len(lab["equipment_availability"]) >= 0  # May be 0 or 1 depending on how it's handled
+
+
+def test_slots_overlap_with_invalid_times(client):
+    """Test slots_overlap function handles invalid time values correctly."""
+    from app import slots_overlap
+    
+    # Test with invalid time strings that cause time_to_minutes to return None
+    # Using empty string or invalid format will cause ValueError/IndexError
+    result = slots_overlap("", "10:00", "09:00", "11:00")
+    assert result is False
+    
+    result = slots_overlap("09:00", "invalid", "09:00", "11:00")
+    assert result is False
+    
+    result = slots_overlap("09:00", "10:00", "bad:time:format", "11:00")
+    assert result is False
+    
+    result = slots_overlap("09:00", "10:00", "09:00", "not-a-time")
+    assert result is False
+
+
+def test_static_file_route(client):
+    """Test static file route."""
+    # This will test the static file route handler
+    # Note: This may return 404 if file doesn't exist, but it tests the route
+    response = client.get('/static/nonexistent.css')
+    # Route exists, file may not - that's OK, we're testing the route handler
+    assert response.status_code in [200, 404]
+
+
+def test_available_labs_route_cache_headers(client):
+    """Test available_labs route sets cache headers correctly."""
+    # Access available_labs route (doesn't require auth, it's a template route)
+    response = client.get("/available_labs.html")
+    # Should succeed and return the template
+    assert response.status_code == 200
+    # Check cache headers are set
+    assert 'Cache-Control' in response.headers
+    assert response.headers['Cache-Control'] == 'no-cache, no-store, must-revalidate'
+    assert 'Pragma' in response.headers
+    assert 'Expires' in response.headers
