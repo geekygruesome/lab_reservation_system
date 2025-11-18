@@ -4165,18 +4165,18 @@ def test_get_labs_auto_initialize_equipment_availability_json_not_list(client):
 def test_slots_overlap_with_invalid_times(client):
     """Test slots_overlap function handles invalid time values correctly."""
     from app import slots_overlap
-    
+
     # Test with invalid time strings that cause time_to_minutes to return None
     # Using empty string or invalid format will cause ValueError/IndexError
     result = slots_overlap("", "10:00", "09:00", "11:00")
     assert result is False
-    
+
     result = slots_overlap("09:00", "invalid", "09:00", "11:00")
     assert result is False
-    
+
     result = slots_overlap("09:00", "10:00", "bad:time:format", "11:00")
     assert result is False
-    
+
     result = slots_overlap("09:00", "10:00", "09:00", "not-a-time")
     assert result is False
 
